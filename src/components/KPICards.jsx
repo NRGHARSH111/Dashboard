@@ -2,8 +2,7 @@ import React, { memo } from 'react';
 import { motion } from 'framer-motion';
 import { TrendingUp, Activity, Clock, AlertTriangle, Wifi } from 'lucide-react';
 import { useDashboard } from '../context/DashboardContext';
-import { maskAccount } from '../utils/dataMasking';
-import { SLA_THRESHOLDS, REFRESH_INTERVALS } from '../config/apiConfig';
+import { useAutoRefresh } from '../hooks/useAutoRefresh';
 
 const KPICard = memo(({ title, value, unit, threshold, icon: Icon, color, change, trend }) => {
   const getThresholdColor = (value, threshold) => {
@@ -32,14 +31,14 @@ const KPICard = memo(({ title, value, unit, threshold, icon: Icon, color, change
     
     const numericValue = typeof value === 'string' ? parseFloat(value.replace('%', '')) : value;
     
-    // Success Rate: Below SLA_THRESHOLDS.SUCCESS_RATE_MIN -> Red border (border-status-failure)
+    // Success Rate: Below 99.5% -> Red border (border-status-failure)
     if (title === 'Success Rate' && threshold.type === 'min') {
-      return numericValue >= SLA_THRESHOLDS.SUCCESS_RATE_MIN ? 'border-gray-200' : 'border-status-failure border-2';
+      return numericValue >= 99.5 ? 'border-gray-200' : 'border-status-failure border-2';
     }
     
-    // Pending Transactions: Above SLA_THRESHOLDS.PENDING_TXN_MAX -> Orange border (border-status-timeout)
+    // Pending Transactions: Above 0.2% -> Orange border (border-status-timeout)
     if (title === 'Pending Txns' && threshold.type === 'max') {
-      return numericValue <= SLA_THRESHOLDS.PENDING_TXN_MAX ? 'border-gray-200' : 'border-status-timeout border-2';
+      return numericValue <= 0.2 ? 'border-gray-200' : 'border-status-timeout border-2';
     }
     
     return 'border-gray-200';
@@ -50,14 +49,14 @@ const KPICard = memo(({ title, value, unit, threshold, icon: Icon, color, change
     
     const numericValue = typeof value === 'string' ? parseFloat(value.replace('%', '')) : value;
     
-    // Success Rate: Below SLA_THRESHOLDS.SUCCESS_RATE_MIN -> Red text (text-status-failure)
+    // Success Rate: Below 99.5% -> Red text (text-status-failure)
     if (title === 'Success Rate' && threshold.type === 'min') {
-      return numericValue >= SLA_THRESHOLDS.SUCCESS_RATE_MIN ? 'text-gray-900' : 'text-status-failure';
+      return numericValue >= 99.5 ? 'text-gray-900' : 'text-status-failure';
     }
     
-    // Pending Transactions: Above SLA_THRESHOLDS.PENDING_TXN_MAX -> Orange text (text-status-timeout)
+    // Pending Transactions: Above 0.2% -> Orange text (text-status-timeout)
     if (title === 'Pending Txns' && threshold.type === 'max') {
-      return numericValue <= SLA_THRESHOLDS.PENDING_TXN_MAX ? 'text-gray-900' : 'text-status-timeout';
+      return numericValue <= 0.2 ? 'text-gray-900' : 'text-status-timeout';
     }
     
     return 'text-gray-900';
@@ -130,10 +129,9 @@ const KPICard = memo(({ title, value, unit, threshold, icon: Icon, color, change
 
 const KPICards = memo(() => {
   const { kpis } = useDashboard();
-
-  console.log('📊 KPICards: Using centralized data from DashboardContext with TFL Section 16 compliant', REFRESH_INTERVALS.KPI/1000, 's refresh');
-  console.log('🔒 KPICards: Account numbers masked for TFL Section 17 compliance');
-  console.log('🎯 KPICards: TFL Section 2 conditional styling active - Success Rate <', SLA_THRESHOLDS.SUCCESS_RATE_MIN + '% triggers red text and border');
+  
+  // Use auto-refresh hook for 5-second updates
+  const { isRunning } = useAutoRefresh(() => {}, 5000, { enabled: true, pauseOnHidden: true });
 
   const kpiData = [
     {
@@ -150,7 +148,7 @@ const KPICards = memo(() => {
       title: 'Success Rate',
       value: kpis.successRate?.value || '99.87',
       unit: '%',
-      threshold: { type: 'min', value: SLA_THRESHOLDS.SUCCESS_RATE_MIN, unit: '%' },
+      threshold: { type: 'min', value: 99.5, unit: '%' },
       icon: Activity,
       color: 'bg-green-600',
       change: kpis.successRate?.change || '+0.03%',
@@ -160,7 +158,7 @@ const KPICards = memo(() => {
       title: 'Avg Response Time',
       value: kpis.avgLatency?.value || '127',
       unit: 'ms',
-      threshold: { type: 'max', value: SLA_THRESHOLDS.AVG_LATENCY_MAX, unit: 'ms' },
+      threshold: { type: 'max', value: 200, unit: 'ms' },
       icon: Clock,
       color: 'bg-yellow-600',
       change: kpis.avgLatency?.change || '-8ms',
@@ -170,11 +168,21 @@ const KPICards = memo(() => {
       title: 'Pending Txns',
       value: kpis.pendingTxns?.value || '0.08',
       unit: '%',
-      threshold: { type: 'max', value: SLA_THRESHOLDS.PENDING_TXN_MAX, unit: '%' },
+      threshold: { type: 'max', value: 0.2, unit: '%' },
       icon: AlertTriangle,
       color: 'bg-orange-600',
       change: kpis.pendingTxns?.change || '-0.02%',
       trend: kpis.pendingTxns?.trend || 'down'
+    },
+    {
+      title: 'Timeout Rate',
+      value: kpis.timeoutRate?.value || '0.07',
+      unit: '%',
+      threshold: { type: 'max', value: 0.1, unit: '%' },
+      icon: Clock,
+      color: 'bg-red-600',
+      change: kpis.timeoutRate?.change || '-0.01%',
+      trend: kpis.timeoutRate?.trend || 'down'
     },
     {
       title: 'NPCI Status',
@@ -189,12 +197,26 @@ const KPICards = memo(() => {
   ];
 
   return (
-    <div className="w-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6 mb-6">
-      {kpiData.map((kpi, index) => (
-        <div key={index} className="h-full">
-          <KPICard {...kpi} />
-        </div>
-      ))}
+    <div className="relative">
+      {/* Live Indicator */}
+      <div className="absolute top-2 right-2 z-10 flex items-center space-x-2 bg-white/90 backdrop-blur-sm px-3 py-1 rounded-full shadow-sm border border-gray-200">
+        <motion.div
+          animate={isRunning ? { scale: [1, 1.2, 1] } : {}}
+          transition={{ duration: 2, repeat: isRunning ? Infinity : 0 }}
+          className={`w-2 h-2 rounded-full ${isRunning ? 'bg-green-500' : 'bg-gray-400'}`}
+        />
+        <span className={`text-xs font-medium ${isRunning ? 'text-green-600' : 'text-gray-500'}`}>
+          {isRunning ? 'Live' : 'Paused'}
+        </span>
+      </div>
+      
+      <div className="w-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-6 mb-6">
+        {kpiData.map((kpi, index) => (
+          <div key={index} className="h-full">
+            <KPICard {...kpi} />
+          </div>
+        ))}
+      </div>
     </div>
   );
 });

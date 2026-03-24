@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Filter, RefreshCw, Activity, ArrowUp, ArrowDown, Pause, Play } from 'lucide-react';
 import { useDashboard } from '../context/DashboardContext';
@@ -21,14 +21,29 @@ const LiveScrollingFeed = () => {
   const [filters, setFilters] = useState({
     switchType: 'ALL',
     bankId: 'ALL',
-    status: 'ALL'
+    status: 'ALL',
+    txnType: 'ALL',
+    timeWindow: 'ALL'
+  });
+  const [searchFilters, setSearchFilters] = useState({
+    rrn: '',
+    utr: '',
+    txnId: '',
+    stan: '',
+    switchRefId: ''
+  });
+  const [debouncedSearchFilters, setDebouncedSearchFilters] = useState({
+    rrn: '',
+    utr: '',
+    txnId: '',
+    stan: '',
+    switchRefId: ''
   });
   const [transactions, setTransactions] = useState([]);
   const [lastUpdate, setLastUpdate] = useState(new Date());
   const scrollRef = useRef(null);
   const feedEndRef = useRef(null);
-
-  console.log('📡 LiveScrollingFeed: Using centralized data with TFL Section 16 compliant 1s refresh');
+  const intervalRef = useRef(null);
 
   // Switch types for filter
   const switchTypes = ['ALL', 'UPI', 'IMPS', 'BANL'];
@@ -37,13 +52,19 @@ const LiveScrollingFeed = () => {
   const bankIds = ['ALL', 'HDFC', 'ICICI', 'SBI', 'AXIS', 'KOTAK', 'PNB', 'BOB'];
   
   // Status options for filter
-  const statusOptions = ['ALL', 'SUCCESS', 'PENDING', 'TIMEOUT', 'FAILURE'];
+  const statusOptions = ['ALL', 'SUCCESS', 'PENDING', 'TIMEOUT', 'FAILURE', 'LINK_DOWN'];
+  
+  // Transaction type options for filter
+  const txnTypeOptions = ['ALL', 'REQ', 'RES', 'ACK', 'ERR'];
+  
+  // Time window options for filter
+  const timeWindowOptions = ['ALL', 'Last 1 min', 'Last 5 min', 'Last 15 min', 'Last 1 hr'];
 
   // Generate realistic transaction data
   const generateTransaction = (index) => {
     const switches = ['UPI', 'IMPS', 'BANL'];
     const banks = ['HDFC', 'ICICI', 'SBI', 'AXIS', 'KOTAK', 'PNB', 'BOB'];
-    const statuses = ['SUCCESS', 'PENDING', 'TIMEOUT', 'FAILURE'];
+    const statuses = ['SUCCESS', 'PENDING', 'TIMEOUT', 'FAILURE', 'LINK_DOWN'];
     const messageTypes = ['REQ', 'RES', 'ACK', 'ERR'];
     const directions = ['INBOUND', 'OUTBOUND'];
     
@@ -70,7 +91,12 @@ const LiveScrollingFeed = () => {
       messageType,
       status,
       duration: Math.round(Math.random() * 5000) / 1000, // in seconds
-      errorCode
+      errorCode,
+      // Additional correlation fields for search
+      utr: Math.random().toString(36).substring(2, 15).toUpperCase(),
+      txnId: `TXN${Date.now()}${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
+      stan: Math.random().toString().substring(2, 8),
+      switchRefId: `SWR${Math.random().toString(36).substring(2, 10).toUpperCase()}`
     };
   };
 
@@ -80,9 +106,9 @@ const LiveScrollingFeed = () => {
     const initialTransactions = Array.from({ length: 50 }, (_, i) => generateTransaction(i));
     setTransactions(initialTransactions);
 
-    // Update every second if not paused
+    // Update every second if not paused and tab is visible
     if (!isPaused) {
-      const interval = setInterval(() => {
+      intervalRef.current = setInterval(() => {
         setTransactions(prev => {
           const newTransaction = generateTransaction(Date.now());
           const updated = [newTransaction, ...prev.slice(0, 99)]; // Keep max 100
@@ -91,7 +117,28 @@ const LiveScrollingFeed = () => {
         setLastUpdate(new Date());
       }, 1000);
 
-      return () => clearInterval(interval);
+      // Handle visibility change
+      const handleVisibilityChange = () => {
+        if (document.hidden) {
+          clearInterval(intervalRef.current);
+        } else {
+          intervalRef.current = setInterval(() => {
+            setTransactions(prev => {
+              const newTransaction = generateTransaction(Date.now());
+              const updated = [newTransaction, ...prev.slice(0, 99)]; // Keep max 100
+              return updated;
+            });
+            setLastUpdate(new Date());
+          }, 1000);
+        }
+      };
+
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+
+      return () => {
+        clearInterval(intervalRef.current);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      };
     }
   }, [isPaused]);
 
@@ -102,15 +149,49 @@ const LiveScrollingFeed = () => {
     }
   }, [transactions, autoScroll, isPaused]);
 
-  // Filter transactions based on selected filters
+  // Debounce search filters
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchFilters(searchFilters);
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchFilters]);
+
+  // Filter transactions based on selected filters and search
   const filteredTransactions = useMemo(() => {
+    const now = Date.now();
+    
+    // Get time window in milliseconds
+    const getTimeWindowMs = (window) => {
+      switch (window) {
+        case 'Last 1 min': return 60 * 1000;
+        case 'Last 5 min': return 5 * 60 * 1000;
+        case 'Last 15 min': return 15 * 60 * 1000;
+        case 'Last 1 hr': return 60 * 60 * 1000;
+        default: return Infinity;
+      }
+    };
+    
+    const timeWindowMs = getTimeWindowMs(filters.timeWindow);
+    
     return transactions.filter(txn => {
       const switchMatch = filters.switchType === 'ALL' || txn.switch === filters.switchType;
       const bankMatch = filters.bankId === 'ALL' || txn.bankId === filters.bankId;
       const statusMatch = filters.status === 'ALL' || txn.status === filters.status;
-      return switchMatch && bankMatch && statusMatch;
+      const txnTypeMatch = filters.txnType === 'ALL' || txn.messageType === filters.txnType;
+      const timeMatch = filters.timeWindow === 'ALL' || (now - txn.timestamp.getTime()) <= timeWindowMs;
+      
+      // Search filters with AND logic
+      const rrnMatch = !debouncedSearchFilters.rrn || txn.rrn.toLowerCase().includes(debouncedSearchFilters.rrn.toLowerCase());
+      const utrMatch = !debouncedSearchFilters.utr || txn.utr.toLowerCase().includes(debouncedSearchFilters.utr.toLowerCase());
+      const txnIdMatch = !debouncedSearchFilters.txnId || txn.txnId.toLowerCase().includes(debouncedSearchFilters.txnId.toLowerCase());
+      const stanMatch = !debouncedSearchFilters.stan || txn.stan.toLowerCase().includes(debouncedSearchFilters.stan.toLowerCase());
+      const switchRefIdMatch = !debouncedSearchFilters.switchRefId || txn.switchRefId.toLowerCase().includes(debouncedSearchFilters.switchRefId.toLowerCase());
+      
+      return switchMatch && bankMatch && statusMatch && txnTypeMatch && timeMatch && rrnMatch && utrMatch && txnIdMatch && stanMatch && switchRefIdMatch;
     });
-  }, [transactions, filters]);
+  }, [transactions, filters, debouncedSearchFilters]);
 
   // Get status color with TFL compliance
   const getStatusColor = (status) => {
@@ -123,6 +204,8 @@ const LiveScrollingFeed = () => {
         return 'bg-orange-500/20 text-orange-300 border-orange-500/30';
       case 'FAILURE':
         return 'bg-red-500/20 text-red-300 border-red-500/30';
+      case 'LINK_DOWN':
+        return 'bg-red-900/30 text-red-200 border-red-800/50';
       default:
         return 'bg-gray-500/20 text-gray-300 border-gray-500/30';
     }
@@ -160,13 +243,55 @@ const LiveScrollingFeed = () => {
     }));
   };
 
+  // Handle search filter changes
+  const handleSearchFilterChange = (field, value) => {
+    setSearchFilters(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
   // Clear all filters
   const clearFilters = () => {
     setFilters({
       switchType: 'ALL',
       bankId: 'ALL',
-      status: 'ALL'
+      status: 'ALL',
+      txnType: 'ALL',
+      timeWindow: 'ALL'
     });
+    setSearchFilters({
+      rrn: '',
+      utr: '',
+      txnId: '',
+      stan: '',
+      switchRefId: ''
+    });
+  };
+
+  // Clear search filters only
+  const clearSearchFilters = () => {
+    setSearchFilters({
+      rrn: '',
+      utr: '',
+      txnId: '',
+      stan: '',
+      switchRefId: ''
+    });
+  };
+
+  // Highlight matched text in search
+  const highlightMatch = (text, searchTerm) => {
+    if (!searchTerm || !text) return text;
+    
+    const parts = text.split(new RegExp(`(${searchTerm})`, 'gi'));
+    return parts.map((part, index) => 
+      part.toLowerCase() === searchTerm.toLowerCase() ? (
+        <span key={index} className="bg-yellow-500/30 text-yellow-300 font-medium px-0.5 rounded">
+          {part}
+        </span>
+      ) : part
+    );
   };
 
   // Framer Motion variants
@@ -223,6 +348,120 @@ const LiveScrollingFeed = () => {
         </div>
       </div>
 
+      {/* Search Bar */}
+      <motion.div 
+        className="glass-dark rounded-lg p-4 mb-6 border border-gray-700"
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.15 }}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center space-x-2">
+            <Filter className="w-4 h-4 text-gray-400" />
+            <h3 className="text-sm font-medium text-gray-300">Search Correlation IDs</h3>
+          </div>
+          <motion.button
+            onClick={clearSearchFilters}
+            className="text-xs text-gray-400 hover:text-gray-200 transition-colors"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+          >
+            Clear Search
+          </motion.button>
+        </div>
+        
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          {/* RRN Search */}
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-2">RRN</label>
+            <input
+              type="text"
+              value={searchFilters.rrn}
+              onChange={(e) => handleSearchFilterChange('rrn', e.target.value)}
+              placeholder="Search RRN..."
+              className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-md text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+
+          {/* UTR Search */}
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-2">UTR</label>
+            <input
+              type="text"
+              value={searchFilters.utr}
+              onChange={(e) => handleSearchFilterChange('utr', e.target.value)}
+              placeholder="Search UTR..."
+              className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-md text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+
+          {/* TxnID Search */}
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-2">TxnID</label>
+            <input
+              type="text"
+              value={searchFilters.txnId}
+              onChange={(e) => handleSearchFilterChange('txnId', e.target.value)}
+              placeholder="Search TxnID..."
+              className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-md text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+
+          {/* STAN Search */}
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-2">STAN</label>
+            <input
+              type="text"
+              value={searchFilters.stan}
+              onChange={(e) => handleSearchFilterChange('stan', e.target.value)}
+              placeholder="Search STAN..."
+              className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-md text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+
+          {/* SwitchRefID Search */}
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-2">SwitchRefID</label>
+            <input
+              type="text"
+              value={searchFilters.switchRefId}
+              onChange={(e) => handleSearchFilterChange('switchRefId', e.target.value)}
+              placeholder="Search SwitchRefID..."
+              className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-md text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+        </div>
+
+        {/* Active Search Filters Display */}
+        <div className="flex flex-wrap items-center gap-2 mt-4">
+          {searchFilters.rrn && (
+            <span className="px-2 py-1 bg-yellow-500/20 text-yellow-300 rounded text-xs border border-yellow-500/30">
+              RRN: {searchFilters.rrn}
+            </span>
+          )}
+          {searchFilters.utr && (
+            <span className="px-2 py-1 bg-purple-500/20 text-purple-300 rounded text-xs border border-purple-500/30">
+              UTR: {searchFilters.utr}
+            </span>
+          )}
+          {searchFilters.txnId && (
+            <span className="px-2 py-1 bg-cyan-500/20 text-cyan-300 rounded text-xs border border-cyan-500/30">
+              TxnID: {searchFilters.txnId}
+            </span>
+          )}
+          {searchFilters.stan && (
+            <span className="px-2 py-1 bg-pink-500/20 text-pink-300 rounded text-xs border border-pink-500/30">
+              STAN: {searchFilters.stan}
+            </span>
+          )}
+          {searchFilters.switchRefId && (
+            <span className="px-2 py-1 bg-indigo-500/20 text-indigo-300 rounded text-xs border border-indigo-500/30">
+              SwitchRefID: {searchFilters.switchRefId}
+            </span>
+          )}
+        </div>
+      </motion.div>
+
       {/* Filters */}
       <motion.div 
         className="glass-dark rounded-lg p-4 mb-6 border border-gray-700"
@@ -245,7 +484,7 @@ const LiveScrollingFeed = () => {
           </motion.button>
         </div>
         
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           {/* Switch Type Filter */}
           <div>
             <label className="block text-xs font-medium text-gray-400 mb-2">Switch Type</label>
@@ -287,6 +526,34 @@ const LiveScrollingFeed = () => {
               ))}
             </select>
           </div>
+
+          {/* Txn Type Filter */}
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-2">Txn Type</label>
+            <select
+              value={filters.txnType}
+              onChange={(e) => handleFilterChange('txnType', e.target.value)}
+              className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-md text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            >
+              {txnTypeOptions.map(type => (
+                <option key={type} value={type}>{type}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Time Window Filter */}
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-2">Time Window</label>
+            <select
+              value={filters.timeWindow}
+              onChange={(e) => handleFilterChange('timeWindow', e.target.value)}
+              className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-md text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            >
+              {timeWindowOptions.map(window => (
+                <option key={window} value={window}>{window}</option>
+              ))}
+            </select>
+          </div>
         </div>
 
         {/* Active Filters Display */}
@@ -304,6 +571,16 @@ const LiveScrollingFeed = () => {
           {filters.status !== 'ALL' && (
             <span className="px-2 py-1 bg-blue-500/20 text-blue-300 rounded text-xs border border-blue-500/30">
               Status: {filters.status}
+            </span>
+          )}
+          {filters.txnType !== 'ALL' && (
+            <span className="px-2 py-1 bg-amber-500/20 text-amber-300 rounded text-xs border border-amber-500/30">
+              Txn Type: {filters.txnType}
+            </span>
+          )}
+          {filters.timeWindow !== 'ALL' && (
+            <span className="px-2 py-1 bg-teal-500/20 text-teal-300 rounded text-xs border border-teal-500/30">
+              Time: {filters.timeWindow}
             </span>
           )}
         </div>
@@ -364,6 +641,10 @@ const LiveScrollingFeed = () => {
                 <th className="px-3 py-2 text-left text-gray-400 font-medium">Switch</th>
                 <th className="px-3 py-2 text-left text-gray-400 font-medium">Direction</th>
                 <th className="px-3 py-2 text-left text-gray-400 font-medium">RRN</th>
+                <th className="px-3 py-2 text-left text-gray-400 font-medium">UTR</th>
+                <th className="px-3 py-2 text-left text-gray-400 font-medium">TxnID</th>
+                <th className="px-3 py-2 text-left text-gray-400 font-medium">STAN</th>
+                <th className="px-3 py-2 text-left text-gray-400 font-medium">SwitchRefID</th>
                 <th className="px-3 py-2 text-left text-gray-400 font-medium">MsgType</th>
                 <th className="px-3 py-2 text-left text-gray-400 font-medium">Status</th>
                 <th className="px-3 py-2 text-left text-gray-400 font-medium">Duration</th>
@@ -374,7 +655,7 @@ const LiveScrollingFeed = () => {
               <AnimatePresence>
                 {filteredTransactions.length === 0 ? (
                   <tr>
-                    <td colSpan="8" className="px-4 py-8 text-center text-gray-500">
+                    <td colSpan="12" className="px-4 py-8 text-center text-gray-500">
                       <div className="flex flex-col items-center space-y-2">
                         <RefreshCw className="w-8 h-8 text-gray-600" />
                         <p>No transactions found</p>
@@ -410,7 +691,27 @@ const LiveScrollingFeed = () => {
                       </td>
                       <td className="px-3 py-2">
                         <span className="font-mono text-xs text-gray-300">
-                          {maskRRN(txn.rrn)}
+                          {highlightMatch(maskRRN(txn.rrn), debouncedSearchFilters.rrn)}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className="font-mono text-xs text-gray-300">
+                          {highlightMatch(txn.utr, debouncedSearchFilters.utr)}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className="font-mono text-xs text-gray-300">
+                          {highlightMatch(txn.txnId, debouncedSearchFilters.txnId)}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className="font-mono text-xs text-gray-300">
+                          {highlightMatch(txn.stan, debouncedSearchFilters.stan)}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className="font-mono text-xs text-gray-300">
+                          {highlightMatch(txn.switchRefId, debouncedSearchFilters.switchRefId)}
                         </span>
                       </td>
                       <td className="px-3 py-2 text-gray-300">
@@ -462,6 +763,10 @@ const LiveScrollingFeed = () => {
           <div className="flex items-center space-x-1">
             <div className="w-2 h-2 bg-red-500 rounded-full"></div>
             <span>Failure</span>
+          </div>
+          <div className="flex items-center space-x-1">
+            <div className="w-2 h-2 bg-red-900 rounded-full border border-red-700"></div>
+            <span>Link Down</span>
           </div>
         </div>
         <div>

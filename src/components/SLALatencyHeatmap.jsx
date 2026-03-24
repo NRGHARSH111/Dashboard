@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useDashboard } from '../context/DashboardContext';
-import { REFRESH_INTERVALS } from '../config/apiConfig';
+import { useAutoRefresh } from '../hooks/useAutoRefresh';
 
 /**
  * SLA & Latency Heatmap Component - TFL Monitoring Dashboard
@@ -21,10 +21,14 @@ const SLALatencyHeatmap = () => {
   const { heatmap, loading } = useDashboard();
   const [selectedPath, setSelectedPath] = useState(null);
   const [hoveredCell, setHoveredCell] = useState(null);
+  const [hoveredCellData, setHoveredCellData] = useState(null);
   const [timeRange, setTimeRange] = useState('1h');
   const [animatedData, setAnimatedData] = useState([]);
-
-  console.log('🗺️ SLALatencyHeatmap: Using centralized data from DashboardContext with TFL Section 16 compliant', REFRESH_INTERVALS.HEATMAP/1000, 's refresh');
+  
+  // Use auto-refresh hook for 10-second updates
+  const { isRunning } = useAutoRefresh(() => {
+    // Refresh callback - data is handled by DashboardContext
+  }, 10000, { enabled: true, pauseOnHidden: true });
 
   // TFL Section 5: Network paths configuration
   const networkPaths = [
@@ -104,6 +108,7 @@ const SLALatencyHeatmap = () => {
         // Simulate realistic latency distribution
         let transactionCount, avgLatency, successRate;
         
+
         if (bucket.id === 'excellent') {
           // 70% of transactions should be excellent
           transactionCount = Math.floor(Math.random() * 5000) + 3000;
@@ -147,30 +152,13 @@ const SLALatencyHeatmap = () => {
     setAnimatedData(generateHeatmapData);
   }, [generateHeatmapData]);
 
-  // Auto-refresh every REFRESH_INTERVALS.HEATMAP milliseconds (TFL Section 16 compliance)
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setAnimatedData(generateHeatmapData);
-    }, REFRESH_INTERVALS.HEATMAP);
-    
-    return () => clearInterval(interval);
-  }, [generateHeatmapData]);
-
   // Get bucket styling based on performance
   const getBucketStyling = (bucketId, successRate) => {
     const bucket = timeBuckets.find(b => b.id === bucketId);
     
-    // Adjust intensity based on success rate within the bucket
-    let opacity = 1;
-    if (bucketId === 'excellent' && successRate < 95) opacity = 0.7;
-    if (bucketId === 'acceptable' && successRate < 85) opacity = 0.6;
-    if (bucketId === 'breach' && successRate < 70) opacity = 0.8;
-    if (bucketId === 'critical') opacity = 0.9;
-    
     return {
       ...bucket,
-      opacity,
-      backgroundColor: bucket.color + Math.round(opacity * 255).toString(16).padStart(2, '0')
+      backgroundColor: bucket.color
     };
   };
 
@@ -229,12 +217,25 @@ const SLALatencyHeatmap = () => {
   };
 
   return (
-    <motion.div 
-      className="glass rounded-lg shadow-lg p-6"
-      variants={containerVariants}
-      initial="hidden"
-      animate="visible"
-    >
+    <div className="relative">
+      {/* Live Indicator */}
+      <div className="absolute top-2 right-2 z-10 flex items-center space-x-2 bg-white/90 backdrop-blur-sm px-3 py-1 rounded-full shadow-sm border border-gray-200">
+        <motion.div
+          animate={isRunning ? { scale: [1, 1.2, 1] } : {}}
+          transition={{ duration: 2, repeat: isRunning ? Infinity : 0 }}
+          className={`w-2 h-2 rounded-full ${isRunning ? 'bg-green-500' : 'bg-gray-400'}`}
+        />
+        <span className={`text-xs font-medium ${isRunning ? 'text-green-600' : 'text-gray-500'}`}>
+          {isRunning ? 'Live' : 'Paused'}
+        </span>
+      </div>
+      
+      <motion.div 
+        className="glass rounded-lg shadow-lg p-6"
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+      >
       {/* Header */}
       <div className="flex justify-between items-center mb-6">
         <div>
@@ -374,9 +375,20 @@ const SLALatencyHeatmap = () => {
                       return (
                         <td 
                           key={bucket.bucketId}
-                          className="p-2 border border-gray-200 text-center cursor-pointer"
-                          onMouseEnter={() => setHoveredCell(`${pathData.pathId}-${bucket.bucketId}`)}
-                          onMouseLeave={() => setHoveredCell(null)}
+                          className="p-2 border border-gray-200 text-center cursor-pointer relative"
+                          onMouseEnter={() => {
+                            setHoveredCell(`${pathData.pathId}-${bucket.bucketId}`);
+                            setHoveredCellData({
+                              transactionCount: bucket.transactionCount,
+                              avgLatency: bucket.avgLatency,
+                              successRate: bucket.successRate,
+                              trend: bucket.trend
+                            });
+                          }}
+                          onMouseLeave={() => {
+                            setHoveredCell(null);
+                            setHoveredCellData(null);
+                          }}
                         >
                           <motion.div
                             className={`p-3 rounded-lg ${styling.bgLightColor} border-2 transition-all duration-200`}
@@ -405,6 +417,45 @@ const SLALatencyHeatmap = () => {
                               <div className="text-xs text-red-600">↓</div>
                             )}
                           </motion.div>
+                          
+                          {/* Tooltip */}
+                          <AnimatePresence>
+                            {isHovered && hoveredCellData && (
+                              <motion.div
+                                className="absolute z-50 bg-gray-900 text-white px-3 py-2 
+                                           rounded-lg shadow-lg border border-gray-700 
+                                           pointer-events-none whitespace-nowrap"
+                                style={{ bottom: '105%', left: '50%', transform: 'translateX(-50%)' }}
+                                initial={{ opacity: 0, y: 4 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: 4 }}
+                                transition={{ duration: 0.15 }}
+                              >
+                                <div className="text-xs space-y-1">
+                                  <div className="flex items-center justify-between space-x-4">
+                                    <span className="font-medium">Transactions:</span>
+                                    <span>{hoveredCellData.transactionCount.toLocaleString()}</span>
+                                  </div>
+                                  <div className="flex items-center justify-between space-x-4">
+                                    <span className="font-medium">Avg Latency:</span>
+                                    <span>{hoveredCellData.avgLatency}ms</span>
+                                  </div>
+                                  <div className="flex items-center justify-between space-x-4">
+                                    <span className="font-medium">Success Rate:</span>
+                                    <span>{hoveredCellData.successRate}%</span>
+                                  </div>
+                                  <div className="flex items-center justify-between space-x-4">
+                                    <span className="font-medium">Trend:</span>
+                                    <span className={hoveredCellData.trend === 'improving' ? 'text-green-400' : 'text-red-400'}>
+                                      {hoveredCellData.trend === 'improving' ? '↑ improving' : '↓ degrading'}
+                                    </span>
+                                  </div>
+                                </div>
+                                {/* Arrow */}
+                                <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 translate-y-1/2 rotate-45 w-2 h-2 bg-gray-900 border-r border-b border-gray-700"></div>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
                         </td>
                       );
                     })}
@@ -497,7 +548,7 @@ const SLALatencyHeatmap = () => {
   >
     {timeBuckets.map(bucket => {
       const totalInBucket = animatedData.reduce((sum, path) => 
-        sum + path.buckets.find(b => b.bucketId === bucket.id)?.transactionCount || 0, 0
+        sum + (path.buckets.find(b => b.bucketId === bucket.id)?.transactionCount ?? 0), 0
       );
       const totalTransactions = animatedData.reduce((sum, path) => 
         sum + path.buckets.reduce((bucketSum, b) => bucketSum + b.transactionCount, 0), 0
@@ -533,7 +584,8 @@ const SLALatencyHeatmap = () => {
     })}
   </motion.div>
 </motion.div>
-);
+</div>
+  );
 };
 
 export default SLALatencyHeatmap;

@@ -61,15 +61,6 @@ const StageCell = ({ data, stage, type }) => {
   );
 };
 
-const getFlowTypeColor = (color) => {
-    switch (color) {
-      case 'blue': return 'bg-blue-500';
-      case 'green': return 'bg-green-500';
-      case 'purple': return 'bg-purple-500';
-      default: return 'bg-gray-500';
-    }
-  };
-
 const FlowArrow = () => (
   <div className="flex items-center justify-center">
     <svg className="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -81,7 +72,16 @@ const FlowArrow = () => (
 const FlowMatrix = memo(() => {
   const { flowMatrix } = useDashboard();
 
-  const stages = ['Host', 'TFL Switch', 'NPCI', 'TFL Switch', 'Host'];
+  const getFlowTypeColor = (color) => {
+    switch (color) {
+      case 'blue': return 'bg-blue-500';
+      case 'green': return 'bg-green-500';
+      case 'purple': return 'bg-purple-500';
+      default: return 'bg-gray-500';
+    }
+  };
+
+  const stages = ['Host → TFL', 'TFL → NPCI', 'NPCI → TFL', 'TFL → Host'];
   const flowTypes = [
     { key: 'banl', label: 'BANL', color: 'blue' },
     { key: 'imps', label: 'IMPS', color: 'green' },
@@ -102,7 +102,7 @@ const FlowMatrix = memo(() => {
   };
 
   return (
-    <div className="w-full space-y-2">
+    <div className="glass rounded-lg p-6 w-full space-y-2">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold text-gray-900">4-Stage Flow Matrix</h2>
         <div className="flex items-center space-x-2 text-sm text-gray-600">
@@ -119,14 +119,16 @@ const FlowMatrix = memo(() => {
               <h3 className="text-lg font-medium text-gray-800">{flowType.label} Flow</h3>
             </div>
             
-            <div className="grid grid-cols-5 gap-4 items-center">
+            <div className="flex items-center gap-2">
               {stages.map((stage, index) => (
                 <React.Fragment key={`${flowType.key}-${index}`}>
-                  <StageCell 
-                    data={getFlowData(flowType.key, index)}
-                    stage={stage}
-                    type={flowType.key}
-                  />
+                  <div className="flex-1">
+                    <StageCell 
+                      data={getFlowData(flowType.key, index)}
+                      stage={stage}
+                      type={flowType.key}
+                    />
+                  </div>
                   {index < stages.length - 1 && <FlowArrow />}
                 </React.Fragment>
               ))}

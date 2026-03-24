@@ -19,7 +19,7 @@ const ExportButton = ({ format, onClick, icon: Icon, label }) => (
 );
 
 const ExportControls = () => {
-  const { liveFeed, kpis } = useDashboard();
+  const { liveFeed, kpis, reportSummary } = useDashboard();
   const [showDropdown, setShowDropdown] = useState(false);
   const [notification, setNotification] = useState(null);
   
@@ -260,6 +260,27 @@ const ExportControls = () => {
           {liveFeed.length} records available
         </div>
       </div>
+      
+      {/* Report Summary Status Bar */}
+      {reportSummary?.lastGenerated && (
+        <div className="flex items-center justify-between 
+          px-4 py-2 mb-4 bg-green-50 border 
+          border-green-200 rounded-lg">
+          <div className="flex items-center space-x-2">
+            <div className="w-2 h-2 bg-green-500 
+              rounded-full animate-pulse"></div>
+            <span className="text-xs text-green-700 
+              font-medium">
+              Report data refreshed at{' '}
+              {new Date(reportSummary.lastGenerated)
+                .toLocaleTimeString()}
+            </span>
+          </div>
+          <span className="text-xs text-green-600">
+            Auto-refresh every 1 min — TFL Section 16
+          </span>
+        </div>
+      )}
       
       {/* Export Notification */}
       <AnimatePresence>

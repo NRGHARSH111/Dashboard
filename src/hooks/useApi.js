@@ -4,8 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { apiService as api } from '../services/apiClient';
-import { REFRESH_INTERVALS } from '../config/apiConfig';
+import api from '../services/apiService';
 
 /**
  * Generic API hook
@@ -53,7 +52,8 @@ export const useRealTimeKPIs = () => {
   const { data, loading, error, execute } = useApi(api.kpi.getRealtime);
   
   useEffect(() => {
-    const interval = setInterval(execute, REFRESH_INTERVALS.KPI);
+    execute(); // ← add this line
+    const interval = setInterval(execute, 5000);
     return () => clearInterval(interval);
   }, [execute]);
 
@@ -80,7 +80,7 @@ export const useLiveTransactions = (params = {}) => {
   const { data, loading, error, execute } = useApi(api.transactions.getLive, [params]);
   
   useEffect(() => {
-    const interval = setInterval(execute, REFRESH_INTERVALS.LIVE_FEED);
+    const interval = setInterval(execute, 1000);
     return () => clearInterval(interval);
   }, [execute]);
 
@@ -138,7 +138,7 @@ export const useActiveAlerts = () => {
   
   useEffect(() => {
     execute();
-    const interval = setInterval(execute, REFRESH_INTERVALS.ALERTS);
+    const interval = setInterval(execute, 3000);
     return () => clearInterval(interval);
   }, [execute]);
 
@@ -181,7 +181,7 @@ export const useNPCIStatus = () => {
   
   useEffect(() => {
     execute();
-    const interval = setInterval(execute, REFRESH_INTERVALS.NPCI);
+    const interval = setInterval(execute, 3000);
     return () => clearInterval(interval);
   }, [execute]);
 
@@ -221,7 +221,8 @@ export const useHealthCheck = () => {
   const { data, loading, error, execute } = useApi(api.health.check);
   
   useEffect(() => {
-    const interval = setInterval(execute, REFRESH_INTERVALS.HEATMAP);
+    execute(); // ← add this line
+    const interval = setInterval(execute, 10000);
     return () => clearInterval(interval);
   }, [execute]);
 

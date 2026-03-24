@@ -262,19 +262,19 @@ export const useCachedApi = (apiFunction, cacheKey, options = {}) => {
   } = options;
 
   const getCachedData = useCallback(() => {
-    const cached = localStorage.getItem(`api_cache_${cacheKey}`);
+    const cached = sessionStorage.getItem(`api_cache_${cacheKey}`);
     if (cached) {
       const { data, timestamp } = JSON.parse(cached);
       if (Date.now() - timestamp < ttl) {
         return data;
       }
-      localStorage.removeItem(`api_cache_${cacheKey}`);
+      sessionStorage.removeItem(`api_cache_${cacheKey}`);
     }
     return null;
-  }, [cacheKey, ttl]);
+  }, [key, ttl]);
 
   const setCachedData = useCallback((data) => {
-    localStorage.setItem(`api_cache_${cacheKey}`, JSON.stringify({
+    sessionStorage.setItem(`api_cache_${cacheKey}`, JSON.stringify({
       data,
       timestamp: Date.now()
     }));
@@ -305,7 +305,7 @@ export const useCachedApi = (apiFunction, cacheKey, options = {}) => {
   return {
     ...apiCall,
     invalidateCache: () => {
-      localStorage.removeItem(`api_cache_${cacheKey}`);
+      sessionStorage.removeItem(`api_cache_${cacheKey}`);
     }
   };
 };

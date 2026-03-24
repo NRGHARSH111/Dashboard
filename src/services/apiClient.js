@@ -1,11 +1,11 @@
 /**
  * Enhanced API Client for TFL Monitoring Dashboard
- * Provides unified interface for all API calls with intelligent fallback to mock data
- * Supports TFL-specific endpoints, security compliance, and error handling
+ * Provides unified interface for all API calls with comprehensive error handling
+ * Supports TFL-specific endpoints, security compliance, and real API connectivity
  */
 
-import API, { API_ENDPOINTS, WS_ENDPOINTS, REFRESH_INTERVALS, SLA_THRESHOLDS, buildCompleteURL } from '../config/apiConfig';
-import { mockDataService } from './mockDataService';
+import { API_CONFIG, API_ENDPOINTS, buildCompleteURL, isDevelopment } from '../config/apiConfig';
+// Mock data service removed - no longer available
 import { checkBackendHealth, classifyError } from '../utils/backendHealthCheck';
 import { 
   maskAccount, 
@@ -97,7 +97,7 @@ const fetchWithRetry = async (url, options, retryCount = 0) => {
   try {
     const response = await fetch(url, {
       ...options,
-      signal: AbortSignal.timeout(30000)
+      signal: AbortSignal.timeout(API_CONFIG.timeouts.default)
     });
 
     if (!response.ok) {
@@ -106,10 +106,10 @@ const fetchWithRetry = async (url, options, retryCount = 0) => {
 
     return response;
   } catch (error) {
-    if (retryCount < 3 && 
+    if (retryCount < API_CONFIG.retry.maxAttempts && 
         (error.name === 'TypeError' || error.name === 'TimeoutError')) {
       
-      const delay = 1000 * Math.pow(2, retryCount);
+      const delay = API_CONFIG.retry.delay * Math.pow(API_CONFIG.retry.backoffFactor, retryCount);
       await new Promise(resolve => setTimeout(resolve, delay));
       
       return fetchWithRetry(url, options, retryCount + 1);
@@ -125,7 +125,8 @@ const fetchWithRetry = async (url, options, retryCount = 0) => {
 const applyDataMasking = (data) => {
   if (!data || typeof data !== 'object') return data;
   
-  const maskingFields = ['accountnumber', 'account', 'rrn', 'mobilenumber', 'mobile', 'phone', 'email', 'pan'];
+  // ✅ FIX: Safe access to security config with default fallback
+  const maskingFields = API_CONFIG?.security?.dataMasking?.fields || ['account', 'rrn', 'mobile', 'email', 'pan'];
   const maskedData = JSON.parse(JSON.stringify(data)); // Deep clone
   
   const maskValue = (key, value) => {
@@ -185,7 +186,7 @@ const getAuthHeaders = () => {
     'X-TFL-Client-Version': '1.0.0',
     'X-TFL-Request-ID': `REQ${Date.now()}${Math.random().toString(36).substr(2, 9)}`,
     'X-TFL-Timestamp': new Date().toISOString(),
-    'X-TFL-Security-Level': 'HIGH'
+    'X-TFL-Security-Level': API_CONFIG?.security?.requireAuth ? 'HIGH' : 'MEDIUM'
   };
   
   if (token) {
@@ -194,10 +195,13 @@ const getAuthHeaders = () => {
   }
   
   // Add environment-specific headers
-  headers['X-TFL-Environment'] = 'development';
+  if (isDevelopment()) {
+    headers['X-TFL-Environment'] = 'development';
+  }
   
-  // Add compliance headers
-  headers['X-TFL-Data-Masking'] = 'ENABLED';
+  // Add compliance headers with safe access
+  const dataMaskingEnabled = API_CONFIG?.security?.dataMasking?.enabled === true;
+  headers['X-TFL-Data-Masking'] = dataMaskingEnabled ? 'ENABLED' : 'DISABLED';
   headers['X-TFL-Audit-Required'] = 'TRUE';
   
   return headers;
@@ -215,7 +219,7 @@ export const apiRequest = async (endpoint, options = {}) => {
     fallbackToMock = true,
     mockDataGenerator = null,
     applyMasking = false,
-    timeout = 30000,
+    timeout = API_CONFIG.timeouts.default,
     skipSecurity = false,
     ...otherOptions
   } = options;
@@ -243,7 +247,12 @@ export const apiRequest = async (endpoint, options = {}) => {
 
   // Apply security middleware
   let requestConfig = { method, data, params, endpoint, url };
-  if (!skipSecurity) {
+  
+  // ✅ FIX: Safe check for API_CONFIG.security and requireAuth
+  const securityConfig = API_CONFIG?.security;
+  const requireAuth = securityConfig?.requireAuth === true;
+  
+  if (!skipSecurity && requireAuth) {
     try {
       requestConfig = await securityMiddleware.beforeRequest(requestConfig);
     } catch (securityError) {
@@ -255,16 +264,6 @@ export const apiRequest = async (endpoint, options = {}) => {
     }
   }
 
-  // Check if backend is available
-  const backendAvailable = await isBackendAvailable();
-  
-  if (!backendAvailable && fallbackToMock) {
-    console.warn(`🔄 Using mock data for ${endpoint} (backend unavailable)`);
-    auditService.logSecurityEvent('API_FALLBACK_TO_MOCK', { endpoint, reason: 'backend_unavailable' });
-    const mockData = mockDataGenerator ? mockDataGenerator() : mockDataService.getFallbackData(endpoint);
-    const maskedData = applyMasking ? applyDataMasking(mockData) : mockData;
-    return { data: maskedData, cached: false, source: 'mock' };
-  }
 
   try {
     const requestOptions = {
@@ -279,10 +278,29 @@ export const apiRequest = async (endpoint, options = {}) => {
     }
 
     const response = await fetchWithRetry(requestConfig.url || url, requestOptions);
+    
+    // Check for IP whitelisting errors (403)
+    if (response.status === 403) {
+      const errorData = await response.json()
+        .catch(() => ({}));
+      if (
+        errorData.code === 'IP_BLOCKED' || 
+        errorData.message?.includes('whitelisted') ||
+        errorData.message?.includes('not allowed')
+      ) {
+        throw {
+          type: 'IP_BLOCKED',
+          message: 'Access denied. Your IP address is not whitelisted. Contact your administrator.',
+          severity: 'CRITICAL'
+        };
+      }
+    }
+    
     let responseData = await response.json();
 
     // Apply data masking if enabled
-    if (applyMasking) {
+    const dataMaskingEnabled = API_CONFIG?.security?.dataMasking?.enabled === true;
+    if (applyMasking && dataMaskingEnabled) {
       responseData = applyDataMasking(responseData);
     }
 
@@ -319,14 +337,7 @@ export const apiRequest = async (endpoint, options = {}) => {
       errorType: errorInfo.type || 'unknown'
     });
     
-    // Fallback to mock data if enabled and available
-    if (fallbackToMock && mockDataGenerator) {
-      console.warn(`🔄 Falling back to mock data for ${endpoint}`);
-      auditService.logSecurityEvent('API_FALLBACK_TO_MOCK', { endpoint, reason: 'api_error' });
-      const mockData = mockDataGenerator();
-      const maskedData = applyMasking ? applyDataMasking(mockData) : mockData;
-      return { data: maskedData, cached: false, source: 'fallback', error: errorInfo };
-    }
+    // No fallback to mock data - throw error instead
     
     throw {
       ...errorInfo,
@@ -343,7 +354,14 @@ export const apiRequest = async (endpoint, options = {}) => {
 export const apiService = {
   // Health Check
   health: {
-    check: () => apiRequest(API_ENDPOINTS.HEALTH.CHECK, { useCache: true }),
+    check: () => apiRequest(API_ENDPOINTS.HEALTH.base, { useCache: true }),
+    prometheus: () => apiRequest(API_ENDPOINTS.HEALTH.PROMETHEUS, { useCache: true }),
+    grafana: () => apiRequest(API_ENDPOINTS.HEALTH.GRAFANA, { useCache: true }),
+    elk: () => apiRequest(API_ENDPOINTS.HEALTH.ELK, { useCache: true }),
+    npciConnectivity: () => apiRequest(API_ENDPOINTS.HEALTH.NPCI_CONNECTIVITY, { 
+      useCache: true,
+      timeout: API_CONFIG.timeouts.liveStream
+    })
   },
 
   // Authentication
@@ -352,31 +370,56 @@ export const apiService = {
       method: 'POST',
       data: credentials,
       fallbackToMock: false,
-      timeout: 30000
+      timeout: API_CONFIG.timeouts.default
     }),
-    otpSend: (mobile) => apiRequest(API_ENDPOINTS.AUTH.OTP_SEND, {
+    logout: () => apiRequest(API_ENDPOINTS.AUTH.LOGOUT, {
       method: 'POST',
-      data: { mobile },
       fallbackToMock: false
     }),
-    otpVerify: (mobile, otp) => apiRequest(API_ENDPOINTS.AUTH.OTP_VERIFY, {
+    refresh: () => apiRequest(API_ENDPOINTS.AUTH.REFRESH, {
       method: 'POST',
-      data: { mobile, otp },
+      fallbackToMock: false
+    }),
+    verify: () => apiRequest(API_ENDPOINTS.AUTH.VERIFY, {
+      useCache: true,
       fallbackToMock: false
     })
   },
 
   // Executive Summary KPIs
   kpi: {
-    getMetrics: () => apiRequest(API_ENDPOINTS.KPI.METRICS, {
+    getExecutiveSummary: () => apiRequest(API_ENDPOINTS.KPI.METRICS, {
       useCache: true,
-      mockDataGenerator: mockDataService.getKPIMetrics,
-      timeout: 30000
+      timeout: API_CONFIG.timeouts.default
+    }),
+    getSuccessRate: () => apiRequest(API_ENDPOINTS.KPI.SUCCESS_RATE, {
+      useCache: true
+    }),
+    getAverageTime: () => apiRequest(API_ENDPOINTS.KPI.AVG_TIME, {
+      useCache: true
+    }),
+    getTotalTransactions: () => apiRequest(API_ENDPOINTS.KPI.TOTAL_TRANSACTIONS, {
+      useCache: true
+    }),
+    getPendingTransactions: () => apiRequest(API_ENDPOINTS.KPI.PENDING_TRANSACTIONS, {
+      useCache: true
+    }),
+    getErrorRate: () => apiRequest(API_ENDPOINTS.KPI.ERROR_RATE, {
+      useCache: true
+    }),
+    getTimeoutRate: () => apiRequest(API_ENDPOINTS.KPI.TIMEOUT_RATE, {
+      useCache: true
     }),
     getRealtime: () => apiRequest(API_ENDPOINTS.KPI.REALTIME, {
       useCache: false,
-      mockDataGenerator: mockDataService.getRealTimeKPI,
-      timeout: 5000
+      timeout: API_CONFIG.timeouts.liveStream
+    }),
+    getHistorical: (params) => apiRequest(API_ENDPOINTS.KPI.HISTORICAL, {
+      params,
+      useCache: true
+    }),
+    getSLA: () => apiRequest(API_ENDPOINTS.KPI.SLA, {
+      useCache: true
     })
   },
 
@@ -385,30 +428,96 @@ export const apiService = {
     getList: (params = {}) => apiRequest(API_ENDPOINTS.TRANSACTIONS.LIST, {
       params,
       useCache: true,
-      applyMasking: true,
-      mockDataGenerator: () => mockDataService.getTransactions(params)
+      applyMasking: true
     }),
     getLive: () => apiRequest(API_ENDPOINTS.TRANSACTIONS.LIVE, {
       useCache: false,
       applyMasking: true,
-      mockDataGenerator: mockDataService.getLiveTransactions,
-      timeout: 5000
+      timeout: API_CONFIG.timeouts.liveStream
     }),
-    getTrace: (id) => apiRequest(API_ENDPOINTS.TRANSACTIONS.TRACE + '/' + id, {
+    getLiveStream: () => apiRequest(API_ENDPOINTS.TRANSACTIONS.LIVE, {
+      useCache: false,
+      applyMasking: true,
+      timeout: API_CONFIG.timeouts.liveStream
+    }),
+    getById: (id) => apiRequest(API_ENDPOINTS.TRANSACTIONS.BY_ID(id), {
       useCache: true,
-      mockDataGenerator: () => mockDataService.getTransactionTrace(id)
+      applyMasking: true
+    }),
+    getByRRN: (rrn) => apiRequest(API_ENDPOINTS.TRANSACTIONS.BY_RRN(rrn), {
+      useCache: true,
+      applyMasking: true
+    }),
+    getTrace: (id) => apiRequest(API_ENDPOINTS.TRANSACTIONS.TRACE(id), {
+      useCache: true
+    }),
+    getFlowMatrix: () => apiRequest(API_ENDPOINTS.TRANSACTIONS.FLOW_MATRIX, {
+      useCache: true,
+      timeout: API_CONFIG.timeouts.default
+    }),
+    getBANLMatrix: () => apiRequest(API_ENDPOINTS.FLOW.BANL, {
+      useCache: true
+    }),
+    getIMPSMatrix: () => apiRequest(API_ENDPOINTS.FLOW.IMPS, {
+      useCache: true
+    }),
+    getUPIMatrix: () => apiRequest(API_ENDPOINTS.FLOW.UPI, {
+      useCache: true
+    }),
+    search: (query) => apiRequest(API_ENDPOINTS.TRANSACTIONS.SEARCH, {
+      method: 'POST',
+      data: query,
+      applyMasking: true
+    }),
+    export: (params) => apiRequest(API_ENDPOINTS.TRANSACTIONS.EXPORT, {
+      method: 'POST',
+      data: params,
+      fallbackToMock: false
+    })
+  },
+
+  // Failure Intelligence & Error Codes
+  failureIntelligence: {
+    getErrorCategories: () => apiRequest(API_ENDPOINTS.FAILURE_INTELLIGENCE.ERROR_CATEGORIES, {
+      useCache: true
+    }),
+    getTopErrorCodes: () => apiRequest(API_ENDPOINTS.FAILURE_INTELLIGENCE.TOP_ERROR_CODES, {
+      useCache: true
+    }),
+    getErrorAnalysis: () => apiRequest(API_ENDPOINTS.FAILURE_INTELLIGENCE.ERROR_ANALYSIS, {
+      useCache: true
+    }),
+    getErrorTrends: (params) => apiRequest(API_ENDPOINTS.FAILURE_INTELLIGENCE.ERROR_TRENDS, {
+      params,
+      useCache: true
+    }),
+    getErrorDetails: (code) => apiRequest(API_ENDPOINTS.FAILURE_INTELLIGENCE.ERROR_DETAILS(code), {
+      useCache: true
     })
   },
 
   // Bank-wise Tenant View
   banks: {
     getList: () => apiRequest(API_ENDPOINTS.BANKS.LIST, {
-      useCache: true,
-      mockDataGenerator: mockDataService.getBanks
+      useCache: true
     }),
-    getMetrics: (bankId) => apiRequest(API_ENDPOINTS.BANKS.METRICS + '/' + bankId + '/metrics', {
-      useCache: true,
-      mockDataGenerator: () => mockDataService.getBankMetrics(bankId)
+    getStatus: () => apiRequest(API_ENDPOINTS.BANKS.STATUS, {
+      useCache: true
+    }),
+    getMetrics: (bankId) => apiRequest(API_ENDPOINTS.BANKS.METRICS(bankId), {
+      useCache: true
+    }),
+    getTenantData: (bankId) => apiRequest(API_ENDPOINTS.BANKS.TENANT_DATA(bankId), {
+      useCache: true
+    }),
+    getTenantView: () => apiRequest(API_ENDPOINTS.BANKS.TENANT_VIEW, {
+      useCache: true
+    }),
+    getConnectivity: () => apiRequest(API_ENDPOINTS.BANKS.CONNECTIVITY, {
+      useCache: true
+    }),
+    getBankSummary: (bankId) => apiRequest(API_ENDPOINTS.BANKS.BANK_SUMMARY(bankId), {
+      useCache: true
     })
   },
 
@@ -416,40 +525,84 @@ export const apiService = {
   npci: {
     getStatus: () => apiRequest(API_ENDPOINTS.NPCI.STATUS, {
       useCache: true,
-      mockDataGenerator: mockDataService.getNPCISTatus,
-      timeout: 10000
+      timeout: API_CONFIG.timeouts.healthChecks
+    }),
+    getHistory: (params) => apiRequest(API_ENDPOINTS.NPCI.HISTORY, {
+      params,
+      useCache: true
+    }),
+    getHealth: () => apiRequest(API_ENDPOINTS.NPCI.HEALTH, {
+      useCache: true,
+      timeout: API_CONFIG.timeouts.healthChecks
+    }),
+    getMetrics: () => apiRequest(API_ENDPOINTS.NPCI.METRICS, {
+      useCache: true
+    }),
+    getAlerts: () => apiRequest(API_ENDPOINTS.NPCI.ALERTS, {
+      useCache: false
+    }),
+    getConnectivityCheck: () => apiRequest(API_ENDPOINTS.NPCI.CONNECTIVITY_CHECK, {
+      useCache: false,
+      timeout: API_CONFIG.timeouts.healthChecks
+    }),
+    getHeartbeat: () => apiRequest(API_ENDPOINTS.NPCI.HEARTBEAT, {
+      useCache: false,
+      timeout: API_CONFIG.timeouts.healthChecks
+    }),
+    getSocketStatus: () => apiRequest(API_ENDPOINTS.NPCI.SOCKET_STATUS, {
+      useCache: false,
+      timeout: API_CONFIG.timeouts.liveStream
+    }),
+    getTLSHandshake: () => apiRequest(API_ENDPOINTS.NPCI.TLS_HANDSHAKE, {
+      useCache: false,
+      timeout: API_CONFIG.timeouts.healthChecks
+    }),
+    getPacketLoss: () => apiRequest(API_ENDPOINTS.NPCI.PACKET_LOSS, {
+      useCache: false,
+      timeout: API_CONFIG.timeouts.healthChecks
+    }),
+    getRTTMetrics: () => apiRequest(API_ENDPOINTS.NPCI.RTT_METRICS, {
+      useCache: false,
+      timeout: API_CONFIG.timeouts.healthChecks
     })
   },
 
   // Alerts
   alerts: {
+    getList: (params = {}) => apiRequest(API_ENDPOINTS.ALERTS.LIST, {
+      params,
+      useCache: true
+    }),
     getActive: () => apiRequest(API_ENDPOINTS.ALERTS.ACTIVE, {
       useCache: false,
-      mockDataGenerator: mockDataService.getActiveAlerts,
-      timeout: 5000
+      timeout: API_CONFIG.timeouts.alerts
     }),
-    notify: (alertData) => apiRequest(API_ENDPOINTS.ALERTS.NOTIFY, {
+    getHistory: (params) => apiRequest(API_ENDPOINTS.ALERTS.HISTORY, {
+      params,
+      useCache: true
+    }),
+    acknowledge: (id) => apiRequest(API_ENDPOINTS.ALERTS.ACKNOWLEDGE(id), {
       method: 'POST',
-      data: alertData,
+      fallbackToMock: false
+    }),
+    resolve: (id) => apiRequest(API_ENDPOINTS.ALERTS.RESOLVE(id), {
+      method: 'POST',
       fallbackToMock: false
     })
   },
 
   // Logs
   logs: {
-    search: (params) => apiRequest(API_ENDPOINTS.LOGS.SEARCH, {
+    getList: (params = {}) => apiRequest(API_ENDPOINTS.LOGS.LIST, {
       params,
-      useCache: true,
-      mockDataGenerator: () => mockDataService.searchLogs(params)
+      useCache: true
     }),
-    audit: (page = 1, limit = 10) => apiRequest(API_ENDPOINTS.LOGS.AUDIT + '?page=' + page + '&limit=' + limit, {
-      useCache: true,
-      mockDataGenerator: () => mockDataService.getAuditLogs(page, limit)
+    search: (query) => apiRequest(API_ENDPOINTS.LOGS.SEARCH, {
+      method: 'POST',
+      data: query
     }),
-    live: (from) => apiRequest(API_ENDPOINTS.LOGS.LIVE + '?from=' + from, {
-      useCache: false,
-      mockDataGenerator: () => mockDataService.getLiveLogs(from),
-      timeout: 5000
+    getByCorrelation: (key) => apiRequest(API_ENDPOINTS.LOGS.BY_CORRELATION(key), {
+      useCache: true
     })
   }
 };

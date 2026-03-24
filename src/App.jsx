@@ -10,8 +10,6 @@ import LiveFeed from './components/LiveFeed';
 import LiveScrollingFeed from './components/LiveScrollingFeed';
 import ConnectivityHealth from './components/ConnectivityHealth';
 import ExportControls from './components/ExportControls';
-import LatencyHeatmap from './components/LatencyHeatmap';
-import SLAHeatmap from './components/SLAHeatmap';
 import SLALatencyHeatmap from './components/SLALatencyHeatmap';
 import FailureIntelligencePanel from './components/FailureIntelligencePanel';
 import BankTenantView from './components/BankTenantView';
@@ -20,11 +18,10 @@ import TransactionTracePanel from './components/TransactionTracePanel';
 import Login from './components/Login';
 import AlertSystem from './components/AlertSystem';
 import SecurityWrapper from './components/SecurityWrapper';
+import IPBlockedScreen from './components/IPBlockedScreen';
 
-// Lazy load heavy components for code splitting
 const NPCIConnectivityMonitor = lazy(() => import('./components/NPCIConnectivityMonitor'));
 
-// Throttle helper function to reduce CPU usage
 const throttle = (func, limit) => {
   let inThrottle;
   return function() {
@@ -98,9 +95,6 @@ const DashboardContent = memo(({ activeTab }) => {
                 <div className="glass rounded-lg p-4 mb-4">
                   <ConnectivityHealth />
                 </div>
-                {/* Temporarily removed heavy components for testing */}
-                {/* <KPICards />
-                <FlowMatrix /> */}
               </SecurityWrapper>
             </div>
           </ErrorBoundary>
@@ -131,7 +125,7 @@ const DashboardContent = memo(({ activeTab }) => {
             <div className="flex flex-col gap-4">
               <SecurityWrapper featureName="Transaction Trace" showWarning={true}>
                 <TransactionTracePanel />
-                <LiveFeed />
+                <LiveScrollingFeed />
               </SecurityWrapper>
             </div>
           </ErrorBoundary>
@@ -173,26 +167,35 @@ const DashboardContent = memo(({ activeTab }) => {
 
 const AuthenticatedApp = () => {
   const [activeTab, setActiveTab] = useState('overview');
+  const [isIPBlocked, setIsIPBlocked] = useState(false);
   const { updateActivity, isAuthenticated } = useAuth();
 
-  // Throttled activity handler to reduce CPU usage
   const throttledUpdateActivity = useCallback(
-    throttle(() => updateActivity(), 2000), // Only run every 2 seconds
+    throttle(() => updateActivity(), 2000),
     [updateActivity]
   );
 
   useEffect(() => {
-    // Track user activity for session timeout with throttling
     window.addEventListener('mousemove', throttledUpdateActivity);
     window.addEventListener('keypress', throttledUpdateActivity);
     window.addEventListener('click', throttledUpdateActivity);
     window.addEventListener('scroll', throttledUpdateActivity);
-    
+
+    const handleUnhandledRejection = (event) => {
+      if (event.reason?.type === 'IP_BLOCKED') {
+        setIsIPBlocked(true);
+        event.preventDefault();
+      }
+    };
+
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
+
     return () => {
       window.removeEventListener('mousemove', throttledUpdateActivity);
       window.removeEventListener('keypress', throttledUpdateActivity);
       window.removeEventListener('click', throttledUpdateActivity);
       window.removeEventListener('scroll', throttledUpdateActivity);
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
     };
   }, [throttledUpdateActivity]);
 
@@ -200,22 +203,20 @@ const AuthenticatedApp = () => {
     return <Login />;
   }
 
+  if (isIPBlocked) {
+    return <IPBlockedScreen />;
+  }
+
   return (
     <DashboardProvider>
-      {/* 1. Background image and glassmorphism - no solid background */}
       <div className="flex h-screen w-screen overflow-hidden">
-        
-        {/* 2. Sidebar Container: Full height, reduced width, border on right, glassmorphism effect */}
         <aside className="w-56 h-full glass border-r border-gray-200 flex flex-col flex-shrink-0">
           <div className="p-4 bg-[#001f3f] border-b border-gray-700">
             <h1 className="text-xl font-bold text-white">TFL Switch</h1>
           </div>
-          
-          {/* Ensure NavigationTabs uses a vertical layout */}
           <nav className="flex-1 overflow-y-auto">
             <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
           </nav>
-
           <div className="p-4 border-t bg-gray-50">
             <div className="flex items-center gap-2 text-status-success text-sm font-medium">
               <span className="w-2 h-2 rounded-full bg-status-success"></span>
@@ -223,8 +224,6 @@ const AuthenticatedApp = () => {
             </div>
           </div>
         </aside>
-
-        {/* 3. Main Content Area: Fills remaining space, scrolls vertically, glassmorphism effect */}
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
           <Header />
           <main className="flex-1 overflow-y-auto p-6">

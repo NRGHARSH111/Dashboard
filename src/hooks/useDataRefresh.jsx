@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useDashboard } from '../context/DashboardContext';
-import { mockDataService } from '../services/apiService';
+import { mockDataService } from '../services/mockDataService';
 import { REFRESH_INTERVALS } from '../config/apiConfig';
 
 /**
@@ -13,7 +13,8 @@ export const useDataRefresh = () => {
     updateLiveFeed, 
     addLiveFeedItem,
     updateFlowMatrix,
-    updateHeatmap 
+    updateHeatmap,
+    updateReportSummary
   } = useDashboard();
 
   const intervalsRef = useRef({});
@@ -23,7 +24,7 @@ export const useDataRefresh = () => {
    */
   const refreshKPIs = useCallback(() => {
     try {
-      const kpis = mockDataService.generateMockKPIs();
+      const kpis = mockDataService.getKPIMetrics();
       updateKPIs(kpis);
     } catch (error) {
       console.error('Error refreshing KPIs:', error);
@@ -36,7 +37,7 @@ export const useDataRefresh = () => {
   const refreshLiveFeed = useCallback(() => {
     try {
       // Add new transaction to existing feed
-      const newTransaction = mockDataService.generateMockTransactions(1)[0];
+      const newTransaction = mockDataService.getTransactions({ limit: 1 }).data[0];
       addLiveFeedItem(newTransaction);
     } catch (error) {
       console.error('Error refreshing live feed:', error);
@@ -48,7 +49,7 @@ export const useDataRefresh = () => {
    */
   const refreshHeatmap = useCallback(() => {
     try {
-      const heatmap = mockDataService.generateMockHeatmap();
+      const heatmap = mockDataService.getFlowMatrix();
       updateHeatmap(heatmap);
     } catch (error) {
       console.error('Error refreshing heatmap:', error);
@@ -60,12 +61,24 @@ export const useDataRefresh = () => {
    */
   const refreshFlowMatrix = useCallback(() => {
     try {
-      const flowMatrix = mockDataService.generateMockFlowMatrix();
+      const flowMatrix = mockDataService.getFlowMatrix();
       updateFlowMatrix(flowMatrix);
     } catch (error) {
       console.error('Error refreshing flow matrix:', error);
     }
   }, [updateFlowMatrix]);
+
+  /**
+   * Refresh Reports every 60 seconds
+   */
+  const refreshReports = useCallback(() => {
+    try {
+      const summary = mockDataService.generateMockReportSummary();
+      updateReportSummary(summary);
+    } catch (error) {
+      console.error('Error refreshing reports:', error);
+    }
+  }, [updateReportSummary]);
 
   /**
    * Initialize all data refresh intervals
@@ -75,25 +88,28 @@ export const useDataRefresh = () => {
     Object.values(intervalsRef.current).forEach(clearInterval);
 
     // Set up new intervals
-    intervalsRef.current.kpis = setInterval(refreshKPIs, REFRESH_INTERVALS.KPI);
-    intervalsRef.current.liveFeed = setInterval(refreshLiveFeed, REFRESH_INTERVALS.LIVE_FEED);
-    intervalsRef.current.heatmap = setInterval(refreshHeatmap, REFRESH_INTERVALS.HEATMAP);
-    intervalsRef.current.flowMatrix = setInterval(refreshFlowMatrix, REFRESH_INTERVALS.FLOW);
+    intervalsRef.current.kpis = setInterval(refreshKPIs, REFRESH_INTERVALS.KPI); // 5 seconds
+    intervalsRef.current.liveFeed = setInterval(refreshLiveFeed, REFRESH_INTERVALS.LIVE_FEED); // 1 second
+    intervalsRef.current.heatmap = setInterval(refreshHeatmap, REFRESH_INTERVALS.HEATMAP); // 10 seconds
+    intervalsRef.current.flowMatrix = setInterval(refreshFlowMatrix, REFRESH_INTERVALS.FLOW); // 5 seconds
+    intervalsRef.current.reports = setInterval(refreshReports, REFRESH_INTERVALS.REPORTS); // 60 seconds
 
     // Initial data load
     refreshKPIs();
     refreshLiveFeed();
     refreshHeatmap();
     refreshFlowMatrix();
+    refreshReports();
 
     // Initialize live feed with some data
-    const initialFeed = mockDataService.generateMockTransactions(20);
-    updateLiveFeed(initialFeed);
+    const initialFeed = mockDataService.getTransactions({ limit: 20 });
+    updateLiveFeed(initialFeed.data);
   }, [
     refreshKPIs, 
     refreshLiveFeed, 
     refreshHeatmap, 
     refreshFlowMatrix,
+    refreshReports,
     updateLiveFeed
   ]);
 
@@ -132,10 +148,13 @@ export const useDataRefresh = () => {
       case 'flowMatrix':
         intervalsRef.current.flowMatrix = setInterval(refreshFlowMatrix, REFRESH_INTERVALS.FLOW);
         break;
+      case 'reports':
+        intervalsRef.current.reports = setInterval(refreshReports, REFRESH_INTERVALS.REPORTS);
+        break;
       default:
         break;
     }
-  }, [refreshKPIs, refreshLiveFeed, refreshHeatmap, refreshFlowMatrix]);
+  }, [refreshKPIs, refreshLiveFeed, refreshHeatmap, refreshFlowMatrix, refreshReports]);
 
   /**
    * Get current refresh status
@@ -145,7 +164,8 @@ export const useDataRefresh = () => {
       kpis: !!intervalsRef.current.kpis,
       liveFeed: !!intervalsRef.current.liveFeed,
       heatmap: !!intervalsRef.current.heatmap,
-      flowMatrix: !!intervalsRef.current.flowMatrix
+      flowMatrix: !!intervalsRef.current.flowMatrix,
+      reports: !!intervalsRef.current.reports
     };
   }, []);
 
@@ -172,6 +192,7 @@ export const useDataRefresh = () => {
         resumeRefresh('liveFeed');
         resumeRefresh('heatmap');
         resumeRefresh('flowMatrix');
+        resumeRefresh('reports');
       }
     };
 
@@ -191,16 +212,15 @@ export const useDataRefresh = () => {
     refreshKPIs,
     refreshLiveFeed,
     refreshHeatmap,
-    refreshFlowMatrix
+    refreshFlowMatrix,
+    refreshReports
   };
 };
 
 /**
  * Hook for managing tab-specific data refresh
  */
-export const useTabDataRefresh = (activeTab) => {
-  const { pauseRefresh, resumeRefresh } = useDataRefresh();
-
+export const useTabDataRefresh = (activeTab, { pauseRefresh, resumeRefresh }) => {
   useEffect(() => {
     // Pause all refresh when switching tabs
     pauseRefresh('kpis');
@@ -255,7 +275,7 @@ export const useRealTimeUpdates = () => {
       // This would normally be a real WebSocket connection
       // For demo purposes, we'll just add random transactions
       const interval = setInterval(() => {
-        const newTransaction = mockDataService.generateMockTransactions(1)[0];
+        const newTransaction = mockDataService.getTransactions({ limit: 1 }).data[0];
         addLiveFeedItem(newTransaction);
       }, Math.random() * 3000 + 1000); // Random interval between 1-4 seconds
 

@@ -1,584 +1,374 @@
-import React, { useState } from 'react';
-import { motion } from 'framer-motion';
-import { Shield, FileText, Clock, CheckCircle, AlertTriangle, Lock, Database, Eye, Search, Filter } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { CheckCircle, XCircle, Download, ChevronLeft, ChevronRight, Shield, Lock, Eye, ShieldCheck, Filter } from 'lucide-react';
 
-const ComplianceCard = ({ control, status, description, lastVerified, icon: Icon }) => {
-  const getStatusColor = (status) => {
+/**
+ * Audit & Compliance Panel Component - TFL Section 12
+ * 
+ * Sections:
+ * A - Compliance Status Grid (5 cards)
+ * B - Audit Access Log Table (paginated)
+ * C - Export functionality
+ */
+
+const AuditCompliancePanel = () => {
+  const [currentPage, setCurrentPage] = useState(1);
+  const rowsPerPage = 10;
+
+  // Section A - Compliance Status Data
+  const complianceControls = useMemo(() => [
+    {
+      id: 1,
+      name: 'Log Retention',
+      value: '180 days',
+      status: 'active',
+      icon: Shield,
+      lastVerified: new Date(Date.now() - Math.random() * 3600000) // Random time within last hour
+    },
+    {
+      id: 2,
+      name: 'Encryption',
+      value: 'AES-256',
+      status: 'enabled',
+      icon: Lock,
+      lastVerified: new Date(Date.now() - Math.random() * 3600000)
+    },
+    {
+      id: 3,
+      name: 'Data Masking',
+      value: 'PII Fields',
+      status: 'enabled',
+      icon: Eye,
+      lastVerified: new Date(Date.now() - Math.random() * 3600000)
+    },
+    {
+      id: 4,
+      name: 'Replay Protection',
+      value: 'Token-based',
+      status: 'enabled',
+      icon: ShieldCheck,
+      lastVerified: new Date(Date.now() - Math.random() * 3600000)
+    },
+    {
+      id: 5,
+      name: 'Duplicate Check',
+      value: 'TxnID+RRN',
+      status: 'active',
+      icon: Filter,
+      lastVerified: new Date(Date.now() - Math.random() * 3600000)
+    }
+  ], []); // empty deps = compute once on mount
+
+  // Section B - Mock Audit Log Data
+  const generateMockAuditLog = () => {
+    const actions = ['Dashboard Login', 'Export Report', 'View Trace', 'Filter Applied', 'Alert Dismissed'];
+    const roles = ['Admin', 'Operator', 'Viewer'];
+    const users = ['john.doe', 'jane.smith', 'mike.wilson', 'sarah.jones', 'alex.brown', 'emma.davis', 'chris.miller', 'lisa.anderson'];
+    const ipPrefixes = ['192.168.1.', '10.0.0.', '172.16.0.', '203.0.113.'];
+    
+    const log = [];
+    for (let i = 0; i < 20; i++) {
+      const timestamp = new Date(Date.now() - (i * 3600000) - Math.random() * 3600000); // Random time within last hour
+      const success = Math.random() > 0.15; // 85% success rate
+      
+      log.push({
+        id: i + 1,
+        timestamp,
+        user: users[Math.floor(Math.random() * users.length)],
+        role: roles[Math.floor(Math.random() * roles.length)],
+        action: actions[Math.floor(Math.random() * actions.length)],
+        ipAddress: ipPrefixes[Math.floor(Math.random() * ipPrefixes.length)] + Math.floor(Math.random() * 255),
+        result: success ? 'success' : 'failed'
+      });
+    }
+    
+    return log.sort((a, b) => b.timestamp - a.timestamp); // Most recent first
+  };
+
+  const auditLog = useMemo(() => generateMockAuditLog(), []);
+
+  // Pagination logic
+  const totalPages = Math.ceil(auditLog.length / rowsPerPage);
+  const startIndex = (currentPage - 1) * rowsPerPage;
+  const endIndex = startIndex + rowsPerPage;
+  const currentRows = auditLog.slice(startIndex, endIndex);
+
+  const formatTimestamp = (timestamp) => {
+    return timestamp.toLocaleString('en-US', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+  };
+
+  const formatLastVerified = (timestamp) => {
+    const now = new Date();
+    const diff = now - timestamp;
+    const minutes = Math.floor(diff / 60000);
+    
+    if (minutes < 1) return 'Just now';
+    if (minutes < 60) return `${minutes} minute${minutes > 1 ? 's' : ''} ago`;
+    
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours} hour${hours > 1 ? 's' : ''} ago`;
+    
+    const days = Math.floor(hours / 24);
+    return `${days} day${days > 1 ? 's' : ''} ago`;
+  };
+
+  const getStatusBadge = (status) => {
     switch (status) {
-      case 'ACTIVE':
-      case 'ENABLED':
-      case 'COMPLIANT':
+      case 'active':
+      case 'enabled':
         return 'bg-green-100 text-green-800 border-green-200';
-      case 'WARNING':
-      case 'PARTIAL':
-        return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      case 'DISABLED':
-      case 'NON_COMPLIANT':
+      case 'disabled':
+      case 'inactive':
         return 'bg-red-100 text-red-800 border-red-200';
       default:
         return 'bg-gray-100 text-gray-800 border-gray-200';
     }
   };
 
-  const getIconColor = (status) => {
-    switch (status) {
-      case 'ACTIVE':
-      case 'ENABLED':
-      case 'COMPLIANT':
-        return 'text-green-600';
-      case 'WARNING':
-      case 'PARTIAL':
-        return 'text-yellow-600';
-      case 'DISABLED':
-      case 'NON_COMPLIANT':
-        return 'text-red-600';
-      default:
-        return 'text-gray-600';
+  const getResultBadge = (result) => {
+    return result === 'success' 
+      ? 'bg-green-100 text-green-800 border-green-200' 
+      : 'bg-red-100 text-red-800 border-red-200';
+  };
+
+  const exportToCSV = () => {
+    const headers = ['Timestamp', 'User', 'Role', 'Action', 'IP Address', 'Result'];
+    const csvContent = [
+      headers.join(','),
+      ...auditLog.map(row => [
+        `"${formatTimestamp(row.timestamp)}"`,
+        `"${row.user}"`,
+        `"${row.role}"`,
+        `"${row.action}"`,
+        `"${row.ipAddress}"`,
+        `"${row.result.toUpperCase()}"`
+      ].join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    
+    link.setAttribute('href', url);
+    link.setAttribute('download', `audit_log_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.1
+      }
     }
   };
 
-  return (
-    <motion.div 
-      className={`bg-white border rounded-lg p-4 shadow-sm hover:shadow-md transition-all ${getStatusColor(status)}`}
-      whileHover={{ scale: 1.02 }}
-    >
-      <div className="flex items-start justify-between mb-3">
-        <div className="flex items-center space-x-3">
-          <div className={`p-2 rounded-lg bg-gray-600`}>
-            <Icon className="w-5 h-5 text-white" />
-          </div>
-          <div>
-            <h4 className="text-sm font-semibold text-gray-800">{control}</h4>
-            <p className="text-xs text-gray-600 mt-1">{description}</p>
-          </div>
-        </div>
-        <div className={`flex items-center space-x-1 ${getIconColor(status)}`}>
-          {status === 'ACTIVE' || status === 'ENABLED' || status === 'COMPLIANT' ? (
-            <CheckCircle className="w-4 h-4" />
-          ) : status === 'WARNING' || status === 'PARTIAL' ? (
-            <AlertTriangle className="w-4 h-4" />
-          ) : (
-            <AlertTriangle className="w-4 h-4" />
-          )}
-          <span className="text-xs font-medium">{status}</span>
-        </div>
-      </div>
-      
-      <div className="text-xs text-gray-500">
-        Last verified: {lastVerified}
-      </div>
-    </motion.div>
-  );
-};
-
-const AuditLogTable = ({ logs }) => (
-  <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead className="bg-gray-50 border-b border-gray-200">
-          <tr>
-            <th className="px-4 py-3 text-left text-gray-700 font-medium">Timestamp</th>
-            <th className="px-4 py-3 text-left text-gray-700 font-medium">User</th>
-            <th className="px-4 py-3 text-left text-gray-700 font-medium">Action</th>
-            <th className="px-4 py-3 text-left text-gray-700 font-medium">Resource</th>
-            <th className="px-4 py-3 text-left text-gray-700 font-medium">IP Address</th>
-            <th className="px-4 py-3 text-left text-gray-700 font-medium">Status</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-200">
-          {logs.map((log, index) => (
-            <motion.tr 
-              key={log.id}
-              className="hover:bg-gray-50 transition-colors"
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.3, delay: index * 0.05 }}
-            >
-              <td className="px-4 py-3 text-gray-600">
-                {new Date(log.timestamp).toLocaleString()}
-              </td>
-              <td className="px-4 py-3">
-                <div className="flex items-center space-x-2">
-                  <div className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center">
-                    <span className="text-xs font-medium text-blue-800">
-                      {log.user.charAt(0).toUpperCase()}
-                    </span>
-                  </div>
-                  <span className="text-sm font-medium text-gray-900">{log.user}</span>
-                </div>
-              </td>
-              <td className="px-4 py-3 text-gray-700">{log.action}</td>
-              <td className="px-4 py-3">
-                <span className="px-2 py-1 bg-gray-100 text-gray-800 rounded text-xs font-medium">
-                  {log.resource}
-                </span>
-              </td>
-              <td className="px-4 py-3 font-mono text-xs text-gray-600">{log.ipAddress}</td>
-              <td className="px-4 py-3">
-                <span className={`px-2 py-1 rounded text-xs font-medium ${
-                  log.status === 'SUCCESS' ? 'bg-green-100 text-green-800' :
-                  log.status === 'FAILED' ? 'bg-red-100 text-red-800' :
-                  'bg-yellow-100 text-yellow-800'
-                }`}>
-                  {log.status}
-                </span>
-              </td>
-            </motion.tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  </div>
-);
-
-const RetentionStatus = ({ policy, currentStatus, daysRemaining }) => (
-  <div className="bg-white border border-gray-200 rounded-lg p-4">
-    <div className="flex items-center justify-between mb-3">
-      <h4 className="text-sm font-semibold text-gray-800">Log Retention Policy</h4>
-      <div className="text-xs text-gray-500">180 days required</div>
-    </div>
-    
-    <div className="space-y-3">
-      <div className="flex justify-between items-center">
-        <span className="text-sm text-gray-600">Policy Status</span>
-        <span className="px-2 py-1 bg-green-100 text-green-800 rounded text-xs font-medium">
-          {currentStatus}
-        </span>
-      </div>
-      
-      <div className="flex justify-between items-center">
-        <span className="text-sm text-gray-600">Days Remaining</span>
-        <span className="text-sm font-medium text-gray-900">{daysRemaining} days</span>
-      </div>
-      
-      <div className="w-full bg-gray-200 rounded-full h-2">
-        <div 
-          className="bg-green-600 h-2 rounded-full transition-all duration-300"
-          style={{ width: `${(daysRemaining / 180) * 100}%` }}
-        ></div>
-      </div>
-    </div>
-  </div>
-);
-
-const AuditCompliancePanel = () => {
-  const [activeTab, setActiveTab] = useState('controls');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchType, setSearchType] = useState('all');
-  const [filteredLogs, setFilteredLogs] = useState([]);
-
-  // Search options for audit logs
-  const searchOptions = [
-    { value: 'all', label: 'All Fields', placeholder: 'Search all audit data...' },
-    { value: 'rrn', label: 'RRN', placeholder: 'Search by RRN...' },
-    { value: 'utr', label: 'UTR', placeholder: 'Search by UTR...' },
-    { value: 'stan', label: 'STAN', placeholder: 'Search by STAN...' },
-    { value: 'user', label: 'User', placeholder: 'Search by user email...' },
-    { value: 'action', label: 'Action', placeholder: 'Search by action...' },
-    { value: 'resource', label: 'Resource', placeholder: 'Search by resource...' }
-  ];
-
-  // Mock compliance data
-  const complianceControls = [
-    {
-      control: 'Log Retention',
-      status: 'ACTIVE',
-      description: '180 days log retention policy enforced',
-      lastVerified: '2 hours ago',
-      icon: Database
-    },
-    {
-      control: 'Encryption',
-      status: 'ENABLED',
-      description: 'AES-256 encryption for data at rest and in transit',
-      lastVerified: '1 hour ago',
-      icon: Lock
-    },
-    {
-      control: 'Data Masking',
-      status: 'ENABLED',
-      description: 'Sensitive data masking in logs and displays',
-      lastVerified: '30 mins ago',
-      icon: Eye
-    },
-    {
-      control: 'Replay Protection',
-      status: 'ACTIVE',
-      description: 'Transaction replay attack prevention enabled',
-      lastVerified: '15 mins ago',
-      icon: Shield
-    },
-    {
-      control: 'Duplicate Check',
-      status: 'ACTIVE',
-      description: 'Real-time duplicate transaction detection',
-      lastVerified: '5 mins ago',
-      icon: CheckCircle
-    }
-  ];
-
-  // Enhanced mock audit logs with RRN, UTR, and STAN
-  const auditLogs = [
-    {
-      id: 1,
-      timestamp: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
-      user: 'ganesh@tfl.com',
-      action: 'Transaction Query',
-      resource: 'Transactions',
-      rrn: '012345678901',
-      utr: '123456789012',
-      stan: '000001',
-      ipAddress: '192.168.1.100',
-      status: 'SUCCESS'
-    },
-    {
-      id: 2,
-      timestamp: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
-      user: 'operator@tfl.com',
-      action: 'Export Data',
-      resource: 'Transactions',
-      rrn: '012345678902',
-      utr: '123456789013',
-      stan: '000002',
-      ipAddress: '192.168.1.101',
-      status: 'SUCCESS'
-    },
-    {
-      id: 3,
-      timestamp: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
-      user: 'auditor@tfl.com',
-      action: 'View Logs',
-      resource: 'Audit Trail',
-      rrn: null,
-      utr: null,
-      stan: null,
-      ipAddress: '192.168.1.102',
-      status: 'SUCCESS'
-    },
-    {
-      id: 4,
-      timestamp: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
-      user: 'unknown@external.com',
-      action: 'Login Attempt',
-      resource: 'System',
-      rrn: null,
-      utr: null,
-      stan: null,
-      ipAddress: '10.0.0.50',
-      status: 'FAILED'
-    },
-    {
-      id: 5,
-      timestamp: new Date(Date.now() - 1000 * 60 * 60).toISOString(),
-      user: 'ganesh@tfl.com',
-      action: 'Configuration Change',
-      resource: 'Alert Rules',
-      rrn: null,
-      utr: null,
-      stan: null,
-      ipAddress: '192.168.1.100',
-      status: 'SUCCESS'
-    },
-    {
-      id: 6,
-      timestamp: new Date(Date.now() - 1000 * 60 * 120).toISOString(),
-      user: 'operator@tfl.com',
-      action: 'Transaction Trace',
-      resource: 'Transaction Details',
-      rrn: '012345678903',
-      utr: '123456789014',
-      stan: '000003',
-      ipAddress: '192.168.1.101',
-      status: 'SUCCESS'
-    }
-  ];
-
-  // Filter logs based on search
-  React.useEffect(() => {
-    if (!searchQuery.trim()) {
-      setFilteredLogs(auditLogs);
-    } else {
-      const filtered = auditLogs.filter(log => {
-        const query = searchQuery.toLowerCase();
-        
-        switch (searchType) {
-          case 'rrn':
-            return log.rrn && log.rrn.toLowerCase().includes(query);
-          case 'utr':
-            return log.utr && log.utr.toLowerCase().includes(query);
-          case 'stan':
-            return log.stan && log.stan.toLowerCase().includes(query);
-          case 'user':
-            return log.user.toLowerCase().includes(query);
-          case 'action':
-            return log.action.toLowerCase().includes(query);
-          case 'resource':
-            return log.resource.toLowerCase().includes(query);
-          case 'all':
-          default:
-            return (
-              log.user.toLowerCase().includes(query) ||
-              log.action.toLowerCase().includes(query) ||
-              log.resource.toLowerCase().includes(query) ||
-              (log.rrn && log.rrn.toLowerCase().includes(query)) ||
-              (log.utr && log.utr.toLowerCase().includes(query)) ||
-              (log.stan && log.stan.toLowerCase().includes(query))
-            );
-        }
-      });
-      setFilteredLogs(filtered);
-    }
-  }, [searchQuery, searchType, auditLogs]);
-
-  // Enhanced Audit Log Table with RRN, UTR, STAN columns
-  const EnhancedAuditLogTable = ({ logs }) => (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50 border-b border-gray-200">
-            <tr>
-              <th className="px-4 py-3 text-left text-gray-700 font-medium">Timestamp</th>
-              <th className="px-4 py-3 text-left text-gray-700 font-medium">User</th>
-              <th className="px-4 py-3 text-left text-gray-700 font-medium">Action</th>
-              <th className="px-4 py-3 text-left text-gray-700 font-medium">RRN</th>
-              <th className="px-4 py-3 text-left text-gray-700 font-medium">UTR</th>
-              <th className="px-4 py-3 text-left text-gray-700 font-medium">STAN</th>
-              <th className="px-4 py-3 text-left text-gray-700 font-medium">IP Address</th>
-              <th className="px-4 py-3 text-left text-gray-700 font-medium">Status</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-200">
-            {logs.map((log, index) => (
-              <motion.tr 
-                key={log.id}
-                className="hover:bg-gray-50 transition-colors"
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ duration: 0.3, delay: index * 0.05 }}
-              >
-                <td className="px-4 py-3 text-gray-600">
-                  {new Date(log.timestamp).toLocaleString()}
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center space-x-2">
-                    <div className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center">
-                      <span className="text-xs font-medium text-blue-800">
-                        {log.user.charAt(0).toUpperCase()}
-                      </span>
-                    </div>
-                    <span className="text-sm font-medium text-gray-900">{log.user}</span>
-                  </div>
-                </td>
-                <td className="px-4 py-3 text-gray-700">{log.action}</td>
-                <td className="px-4 py-3">
-                  {log.rrn ? (
-                    <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-mono font-medium">
-                      {log.rrn}
-                    </span>
-                  ) : (
-                    <span className="text-gray-400 text-xs">-</span>
-                  )}
-                </td>
-                <td className="px-4 py-3">
-                  {log.utr ? (
-                    <span className="px-2 py-1 bg-green-100 text-green-800 rounded text-xs font-mono font-medium">
-                      {log.utr}
-                    </span>
-                  ) : (
-                    <span className="text-gray-400 text-xs">-</span>
-                  )}
-                </td>
-                <td className="px-4 py-3">
-                  {log.stan ? (
-                    <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded text-xs font-mono font-medium">
-                      {log.stan}
-                    </span>                    
-                  ) : (     
-                    <span className="text-gray-400 text-xs">-</span>
-                  )}
-                </td>
-                <td className="px-4 py-3 font-mono text-xs text-gray-600">{log.ipAddress}</td>
-                <td className="px-4 py-3">
-                  <span className={`px-2 py-1 rounded text-xs font-medium ${
-                    log.status === 'SUCCESS' ? 'bg-green-100 text-green-800' :
-                    log.status === 'FAILED' ? 'bg-red-100 text-red-800' :
-                    'bg-yellow-100 text-yellow-800'
-                  }`}>
-                    {log.status}
-                  </span>
-                </td>
-              </motion.tr>
-           ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-   );
+  const cardVariants = {
+    hidden: { opacity: 0, y: 20 },
+    visible: { opacity: 1, y: 0 }
+  };
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-3">
-          <div className="w-8 h-8 bg-purple-600 rounded-lg flex items-center justify-center">
-            <Shield className="w-5 h-5 text-white" />
-          </div>
-          <h2 className="text-xl font-semibold text-gray-900">Compliance & Audit Panel</h2>
+      {/* Section A - Compliance Status Grid */}
+      <motion.div
+        className="glass rounded-lg p-6"
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+      >
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-xl font-bold text-gray-900">Compliance Status</h2>
+          <div className="text-sm text-gray-500">TFL Section 12 - Security Controls</div>
         </div>
-        <div className="flex items-center space-x-2 text-sm text-gray-500">
-          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-          <span>Regulatory Monitoring</span>
-        </div>
-      </div>
-
-      {/* Tab Navigation */}
-      <div className="border-b border-gray-200">
-        <nav className="flex space-x-8">
-          {['controls', 'logs', 'retention'].map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                activeTab === tab
-                  ? 'border-purple-500 text-purple-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              {tab.charAt(0).toUpperCase() + tab.slice(1)}
-            </button>
-          ))}
-        </nav>
-      </div>
-
-      {/* Tab Content */}
-      {activeTab === 'controls' && (
-        <div className="space-y-4">
-          <h3 className="text-lg font-medium text-gray-800">Compliance Controls</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {complianceControls.map((control, index) => (
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+          {complianceControls.map((control, index) => {
+            const Icon = control.icon;
+            const isActive = control.status === 'active' || control.status === 'enabled';
+            
+            return (
               <motion.div
-                key={control.control}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, delay: index * 0.1 }}
+                key={control.id}
+                variants={cardVariants}
+                className="tfl-card p-4 hover:shadow-lg transition-shadow"
               >
-                <ComplianceCard {...control} />
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {activeTab === 'logs' && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-medium text-gray-800">Audit Trail</h3>
-            <div className="text-sm text-gray-500">
-              {filteredLogs.length} of {auditLogs.length} records
-            </div>
-          </div>
-          
-          {/* Search Controls */}
-          <div className="bg-white border border-gray-200 rounded-lg p-4">
-            <div className="flex flex-col sm:flex-row gap-4">
-              {/* Search Type Selector */}
-              <div className="flex items-center space-x-2">
-                <Filter className="w-4 h-4 text-gray-500" />
-                <select
-                  value={searchType}
-                  onChange={(e) => setSearchType(e.target.value)}
-                  className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-                >
-                  {searchOptions.map(option => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              
-              {/* Search Input */}
-              <div className="flex-1">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder={searchOptions.find(opt => opt.value === searchType)?.placeholder || 'Search...'}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  />
+                <div className="flex flex-col h-full">
+                  {/* Header */}
+                  <div className="flex items-center justify-between mb-3">
+                    <div className={`p-2 rounded-lg ${isActive ? 'bg-green-100' : 'bg-red-100'}`}>
+                      <Icon className={`w-5 h-5 ${isActive ? 'text-green-600' : 'text-red-600'}`} />
+                    </div>
+                    <div className={`px-2 py-1 rounded-full text-xs font-medium border ${getStatusBadge(control.status)}`}>
+                      {control.status}
+                    </div>
+                  </div>
+                  
+                  {/* Content */}
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-gray-900 mb-1">{control.name}</h3>
+                    <div className="text-sm text-gray-600 mb-2">{control.value}</div>
+                  </div>
+                  
+                  {/* Footer */}
+                  <div className="flex items-center justify-between pt-2 border-t border-gray-200">
+                    <div className="flex items-center space-x-1">
+                      {isActive ? (
+                        <CheckCircle className="w-4 h-4 text-green-500" />
+                      ) : (
+                        <XCircle className="w-4 h-4 text-red-500" />
+                      )}
+                      <span className="text-xs text-gray-500">
+                        {formatLastVerified(control.lastVerified)}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-              </div>
-              
-              {/* Clear Button */}
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery('')}
-                  className="px-3 py-2 text-sm text-gray-600 hover:text-gray-800 border border-gray-300 rounded-md hover:bg-gray-50"
-                >
-                  Clear
-                </button>
-              )}
+              </motion.div>
+            );
+          })}
+        </div>
+      </motion.div>
+
+      {/* Section B - Audit Access Log Table */}
+      <motion.div
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+        transition={{ delay: 0.2 }}
+      >
+        <div className="glass rounded-lg p-6">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">Audit Access Log</h2>
+              <p className="text-sm text-gray-600 mt-1">Recent system access and actions</p>
             </div>
             
-            {/* Search Info */}
-            {searchQuery && (
-              <div className="mt-2 text-xs text-gray-500">
-                Searching in <span className="font-medium">{searchOptions.find(opt => opt.value === searchType)?.label}</span> for "<span className="font-medium">{searchQuery}</span>"
-              </div>
-            )}
+            {/* Export Button */}
+            <motion.button
+              onClick={exportToCSV}
+              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              <Download className="w-4 h-4" />
+              <span>Export CSV</span>
+            </motion.button>
           </div>
-          
-          <EnhancedAuditLogTable logs={filteredLogs} />
-        </div>
-      )}
 
-      {activeTab === 'retention' && (
-        <div className="space-y-4">
-          <h3 className="text-lg font-medium text-gray-800">Data Retention Status</h3>
-          <RetentionStatus 
-            policy="180 Days"
-            currentStatus="COMPLIANT"
-            daysRemaining={165}
-          />
-          
-          <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-            <h4 className="text-sm font-medium text-gray-700 mb-3">Retention Summary</h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-              <div className="space-y-2">
-                <div className="flex items-center space-x-2">
-                  <CheckCircle className="w-3 h-3 text-green-600" />
-                  <span className="text-gray-600">All logs retained for 180 days</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <CheckCircle className="w-3 h-3 text-green-600" />
-                  <span className="text-gray-600">Automated cleanup scheduled</span>
-                </div>
+          {/* Table */}
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="border-b border-gray-200">
+                  <th className="text-left py-3 px-4 font-semibold text-gray-900">Timestamp</th>
+                  <th className="text-left py-3 px-4 font-semibold text-gray-900">User</th>
+                  <th className="text-left py-3 px-4 font-semibold text-gray-900">Role</th>
+                  <th className="text-left py-3 px-4 font-semibold text-gray-900">Action</th>
+                  <th className="text-left py-3 px-4 font-semibold text-gray-900">IP Address</th>
+                  <th className="text-left py-3 px-4 font-semibold text-gray-900">Result</th>
+                </tr>
+              </thead>
+              <tbody>
+                <AnimatePresence>
+                  {currentRows.map((row, index) => (
+                    <motion.tr
+                      key={row.id}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -20 }}
+                      transition={{ delay: index * 0.05 }}
+                      className="border-b border-gray-100 hover:bg-gray-50"
+                    >
+                      <td className="py-3 px-4 text-sm text-gray-900">
+                        {formatTimestamp(row.timestamp)}
+                      </td>
+                      <td className="py-3 px-4 text-sm text-gray-900">{row.user}</td>
+                      <td className="py-3 px-4 text-sm text-gray-900">{row.role}</td>
+                      <td className="py-3 px-4 text-sm text-gray-900">{row.action}</td>
+                      <td className="py-3 px-4 text-sm text-gray-900">{row.ipAddress}</td>
+                      <td className="py-3 px-4">
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium border ${getResultBadge(row.result)}`}>
+                          {row.result}
+                        </span>
+                      </td>
+                    </motion.tr>
+                  ))}
+                </AnimatePresence>
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination */}
+          <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-200">
+            <div className="text-sm text-gray-600">
+              Showing {startIndex + 1} to {Math.min(endIndex, auditLog.length)} of {auditLog.length} entries
+            </div>
+            
+            <div className="flex items-center space-x-2">
+              <motion.button
+                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1}
+                className={`flex items-center space-x-1 px-3 py-2 rounded-lg border transition-colors ${
+                  currentPage === 1
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed border-gray-200'
+                    : 'bg-white text-gray-700 hover:bg-gray-50 border-gray-300'
+                }`}
+                whileHover={currentPage > 1 ? { scale: 1.02 } : {}}
+                whileTap={currentPage > 1 ? { scale: 0.98 } : {}}
+              >
+                <ChevronLeft className="w-4 h-4" />
+                <span>Previous</span>
+              </motion.button>
+              
+              <div className="flex items-center space-x-1">
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                  <motion.button
+                    key={page}
+                    onClick={() => setCurrentPage(page)}
+                    className={`w-8 h-8 rounded-lg text-sm font-medium transition-colors ${
+                      currentPage === page
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
+                    }`}
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                  >
+                    {page}
+                  </motion.button>
+                ))}
               </div>
-              <div className="space-y-2">
-                <div className="flex items-center space-x-2">
-                  <Database className="w-3 h-3 text-blue-600" />
-                  <span className="text-gray-600">Storage usage: 2.3TB / 5TB</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Clock className="w-3 h-3 text-yellow-600" />
-                  <span className="text-gray-600">Next cleanup: 15 days</span>
-                </div>
-              </div>
+              
+              <motion.button
+                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                disabled={currentPage === totalPages}
+                className={`flex items-center space-x-1 px-3 py-2 rounded-lg border transition-colors ${
+                  currentPage === totalPages
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed border-gray-200'
+                    : 'bg-white text-gray-700 hover:bg-gray-50 border-gray-300'
+                }`}
+                whileHover={currentPage < totalPages ? { scale: 1.02 } : {}}
+                whileTap={currentPage < totalPages ? { scale: 0.98 } : {}}
+              >
+                <span>Next</span>
+                <ChevronRight className="w-4 h-4" />
+              </motion.button>
             </div>
           </div>
         </div>
-      )}
-
-      {/* Compliance Status Footer */}
-      <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-        <div className="flex items-center space-x-2">
-          <CheckCircle className="w-5 h-5 text-green-600" />
-          <span className="text-sm font-medium text-green-800">
-            System is fully compliant with regulatory requirements
-          </span>
-        </div>
-      </div>
+      </motion.div>
     </div>
   );
 };

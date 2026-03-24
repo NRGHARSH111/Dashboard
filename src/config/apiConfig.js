@@ -1,90 +1,272 @@
 /**
- * TFL Switch Ecosystem — Centralized API Configuration
- * ALL backend endpoints are defined here.
- * To change any URL, update ONLY this file.
+ * Centralized API Configuration
+ * Manages all backend endpoints and environment-based configuration
  */
 
-const ENV = import.meta.env;
-
-export const BASE_URL    = ENV.VITE_API_BASE_URL || 'http://localhost:8080';
-export const WS_BASE_URL = ENV.VITE_WS_BASE_URL  || 'ws://localhost:8080';
-
-export const buildURL         = (path) => `${BASE_URL}${path}`;
-export const buildWSURL       = (path) => `${WS_BASE_URL}${path}`;
-export const buildCompleteURL = (path) => {
-  if (!path) return '';
-  if (path.startsWith('ws://') || path.startsWith('wss://')) return path;
-  if (path.startsWith('http')) return path;
-  return `${BASE_URL}${path}`;
+// Environment-based base URLs
+const API_BASE_URLS = {
+  development: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api',
+  production: import.meta.env.VITE_API_BASE_URL || 'https://api.tflmonitoring.com/api',
+  test: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8081/api'
 };
 
+// WebSocket URLs
+const WS_URLS = {
+  development: import.meta.env.VITE_WS_URL || 'ws://localhost:8080/ws',
+  production: import.meta.env.VITE_WS_URL || 'wss://api.tflmonitoring.com/ws',
+  test: import.meta.env.VITE_WS_URL || 'ws://localhost:8081/ws'
+};
+
+// Get current environment
+const getCurrentEnvironment = () => {
+  return import.meta.env.MODE || 'development';
+};
+
+// Get base URL for current environment
+const getBaseURL = () => {
+  const env = getCurrentEnvironment();
+  return API_BASE_URLS[env];
+};
+
+// Get WebSocket URL for current environment
+const getWSURL = () => {
+  const env = getCurrentEnvironment();
+  return WS_URLS[env];
+};
+
+// API Endpoints Configuration
 export const API_ENDPOINTS = {
-  KPI: {
-    METRICS:  '/api/metrics/kpis',
-    REALTIME: '/api/metrics/kpis/realtime',
-  },
-  FLOW: {
-    BANL: '/api/metrics/flow?switch=BANL',
-    IMPS: '/api/metrics/flow?switch=IMPS',
-    UPI:  '/api/metrics/flow?switch=UPI',
-  },
-  HEATMAP: {
-    DATA: '/api/metrics/heatmap',
-  },
-  TRANSACTIONS: {
-    LIVE:  '/api/transactions/live',
-    LIST:  '/api/transactions/list',
-    TRACE: '/api/trace',
-  },
-  LOGS: {
-    SEARCH: '/api/logs/search',
-    AUDIT:  '/api/logs/audit',
-    LIVE:   '/api/logs/live',
-  },
-  NPCI: {
-    STATUS: '/api/npci/status',
-    LINKS: {
-      PRIMARY:   '/npci/primary',
-      SECONDARY: '/npci/secondary',
-      BACKUP:    '/npci/backup',
-      WEBSOCKET: '/npci/ws',
-    },
-  },
-  ALERTS: {
-    ACTIVE:  '/api/alerts/active',
-    NOTIFY:  '/api/alerts/notify',
-    WEBHOOK: '/webhook/alerts',
-  },
-  BANKS: {
-    LIST:    '/api/banks',
-    METRICS: '/api/banks',
-  },
-  AUTH: {
-    LOGIN:      '/api/auth/login',
-    OTP_SEND:   '/api/auth/otp/send',
-    OTP_VERIFY: '/api/auth/otp/verify',
-  },
-  EXPORT: {
-    CSV:   '/api/export/csv',
-    EXCEL: '/api/export/excel',
-    PDF:   '/api/export/pdf',
-    JSON:  '/api/export/json',
-  },
-  ERRORS: {
-    SUMMARY:   '/api/errors/summary',
-    TOP_CODES: '/api/errors/top-codes',
-  },
+  // Health Check
   HEALTH: {
-    CHECK: '/api/health',
+    base: '/health',
+    methods: ['GET'],
+    PROMETHEUS: '/health/prometheus',
+    GRAFANA: '/health/grafana',
+    ELK: '/health/elk',
+    NPCI_CONNECTIVITY: '/health/npci-connectivity'
   },
+
+  // Authentication
+  AUTH: {
+    LOGIN: '/auth/login',
+    LOGOUT: '/auth/logout',
+    REFRESH: '/auth/refresh',
+    MFA_VERIFY: '/auth/mfa/verify',
+    MFA_SEND: '/auth/mfa/send'
+  },
+
+  // KPI Data
+  KPI: {
+    BASE: '/kpi',
+    METRICS: '/kpi/metrics',
+    REALTIME: '/kpi/realtime',
+    HISTORICAL: '/kpi/historical',
+    SLA: '/kpi/sla',
+    PERFORMANCE: '/kpi/performance',
+    SUCCESS_RATE: '/kpi/success-rate',
+    AVG_TIME: '/kpi/avg-time',
+    TOTAL_TRANSACTIONS: '/kpi/total-transactions',
+    PENDING_TRANSACTIONS: '/kpi/pending-transactions',
+    ERROR_RATE: '/kpi/error-rate',
+    TIMEOUT_RATE: '/kpi/timeout-rate'
+  },
+
+  // Transactions
+  TRANSACTIONS: {
+    BASE: '/transactions',
+    LIST: '/transactions/list',
+    LIVE: '/transactions/live',
+    BY_ID: (id) => `/transactions/${id}`,
+    BY_RRN: (rrn) => `/transactions/rrn/${rrn}`,
+    TRACE: (id) => `/transactions/${id}/trace`,
+    FLOW_MATRIX: '/transactions/flow-matrix',
+    SEARCH: '/transactions/search',
+    EXPORT: '/transactions/export'
+  },
+
+  // Flow Metrics
+  FLOW: {
+    BANL: '/metrics/flow?switch=BANL',
+    IMPS: '/metrics/flow?switch=IMPS',
+    UPI:  '/metrics/flow?switch=UPI',
+  },
+
+  // Heatmap Data
+  HEATMAP: {
+    DATA: '/metrics/heatmap',
+  },
+
+  // Failure Intelligence
+  FAILURE_INTELLIGENCE: {
+    ERROR_CATEGORIES: '/failure-intelligence/categories',
+    TOP_ERROR_CODES: '/failure-intelligence/top-codes',
+    ERROR_ANALYSIS: '/failure-intelligence/analysis',
+    ERROR_TRENDS: '/failure-intelligence/trends',
+    ERROR_DETAILS: (code) => `/failure-intelligence/details/${code}`
+  },
+
+  // Alerts
+  ALERTS: {
+    BASE: '/alerts',
+    LIST: '/alerts/list',
+    ACTIVE: '/alerts/active',
+    HISTORY: '/alerts/history',
+    CREATE_RULE: '/alerts/rules',
+    UPDATE_RULE: (id) => `/alerts/rules/${id}`,
+    DELETE_RULE: (id) => `/alerts/rules/${id}`,
+    RULES: '/alerts/rules',
+    ACKNOWLEDGE: (id) => `/alerts/${id}/acknowledge`,
+    RESOLVE: (id) => `/alerts/${id}/resolve`,
+    NOTIFY: '/alerts/notify',
+    WEBHOOK: '/webhook/alerts'
+  },
+
+  // Logs
+  LOGS: {
+    BASE: '/logs',
+    LIST: '/logs/list',
+    SEARCH: '/logs/search',
+    BY_CORRELATION: (key) => `/logs/correlation/${key}`,
+    BY_RRN: (rrn) => `/logs/rrn/${rrn}`,
+    BY_UTR: (utr) => `/logs/utr/${utr}`,
+    BY_TXN_ID: (txnId) => `/logs/txn/${txnId}`,
+    AGGREGATION: '/logs/aggregation',
+    EXPORT: '/logs/export'
+  },
+
+  // NPCI Connectivity
+  NPCI: {
+    BASE: '/npci/status',
+    HISTORY: '/npci/history',
+    HEALTH: '/npci/health',
+    METRICS: '/npci/metrics',
+    ALERTS: '/npci/alerts',
+    // TFL Section 11: NPCI TCP/IP Links
+    LINKS: {
+      PRIMARY: '/npci/links/primary',
+      SECONDARY: '/npci/links/secondary', 
+      BACKUP: '/npci/links/backup',
+      STATUS: '/npci/links/status',
+      WEBSOCKET: '/npci/links/stream'
+    },
+    CONNECTIVITY_CHECK: '/npci/connectivity-check',
+    HEARTBEAT: '/npci/heartbeat',
+    SOCKET_STATUS: '/npci/socket-status',
+    TLS_HANDSHAKE: '/npci/tls-handshake',
+    PACKET_LOSS: '/npci/packet-loss',
+    RTT_METRICS: '/npci/rtt-metrics'
+  },
+
+  // Banks
+  BANKS: {
+    LIST: '/banks/list',
+    STATUS: '/banks/status',
+    METRICS: (bankId) => `/banks/${bankId}/metrics`,
+    TENANT_DATA: (bankId) => `/banks/${bankId}/tenant`,
+    TENANT_VIEW: '/banks/tenant-view',
+    CONNECTIVITY: '/banks/connectivity',
+    BANK_SUMMARY: (bankId) => `/banks/${bankId}/summary`
+  },
+
+  // SLA Configuration
+  SLA: {
+    CONFIG: '/sla/config',
+    RULES: '/sla/rules',
+    UPDATE_RULE: (id) => `/sla/rules/${id}`,
+    BREACHES: '/sla/breaches',
+    REPORT: '/sla/report',
+    THRESHOLDS: '/sla/thresholds'
+  },
+
+  // Compliance & Audit
+  COMPLIANCE: {
+    CONTROLS: '/compliance/controls',
+    AUDIT_LOGS: '/compliance/audit',
+    REPORTS: '/compliance/reports',
+    STATUS: '/compliance/status'
+  },
+
+  // Export
+  EXPORT: {
+    CSV: '/export/csv',
+    EXCEL: '/export/excel',
+    PDF: '/export/pdf',
+    JSON: '/export/json'
+  },
+
+  // Configuration
+  CONFIG: {
+    GLOBAL: '/config/global',
+    USER: '/config/user',
+    DASHBOARD: '/config/dashboard',
+    REFRESH_RATES: '/config/refresh-rates'
+  }
 };
 
+// WebSocket Endpoints
 export const WS_ENDPOINTS = {
-  LIVE_FEED: '/ws/live-feed',
-  ALERTS:    '/ws/alerts',
-  NPCI_LOGS: '/ws/npci-logs',
+  LIVE_FEED: '/live-feed',
+  ALERTS:    '/alerts',
+  NPCI_LOGS: '/npci-logs',
 };
 
+// HTTP Methods Configuration
+export const HTTP_METHODS = {
+  GET: 'GET',
+  POST: 'POST',
+  PUT: 'PUT',
+  DELETE: 'DELETE',
+  PATCH: 'PATCH'
+};
+
+// Content Types
+export const CONTENT_TYPES = {
+  JSON: 'application/json',
+  FORM_DATA: 'multipart/form-data',
+  URL_ENCODED: 'application/x-www-form-urlencoded'
+};
+
+// API Configuration Object
+export const API_CONFIG = {
+  // Base configuration
+  baseURL: getBaseURL(),
+  wsURL: getWSURL(),
+  environment: getCurrentEnvironment(),
+  
+  // Timeouts (in milliseconds)
+  timeouts: {
+    default: 30000,      // 30 seconds
+    upload: 300000,      // 5 minutes
+    download: 600000,    // 10 minutes
+    websocket: 10000,     // 10 seconds
+    liveStream: 5000,     // 5 seconds for live data
+    healthChecks: 10000    // 10 seconds for health checks
+  },
+  
+  // Retry configuration
+  retry: {
+    maxAttempts: 3,
+    delay: 1000,        // 1 second
+    backoffFactor: 2
+  },
+  
+  // Cache configuration
+  cache: {
+    enabled: true,
+    ttl: 300000         // 5 minutes
+  },
+  
+  // Security configuration
+  security: {
+    requireAuth: true,
+    dataMasking: {
+      enabled: true,
+      fields: ['account', 'rrn', 'mobile', 'email', 'pan', 'accountnumber', 'mobilenumber']
+    }
+  }
+};
+
+// Refresh Intervals (in milliseconds)
 export const REFRESH_INTERVALS = {
   LIVE_FEED: 1000,
   KPI:       5000,
@@ -95,6 +277,7 @@ export const REFRESH_INTERVALS = {
   REPORTS:   60000,
 };
 
+// SLA Thresholds
 export const SLA_THRESHOLDS = {
   SUCCESS_RATE_MIN:   99.5,
   AVG_LATENCY_MAX:    200,
@@ -108,54 +291,63 @@ export const SLA_THRESHOLDS = {
   HEARTBEAT_MISS_MAX: 3,
 };
 
-export const STATUS_COLORS = {
-  SUCCESS:   '#22c55e',
-  PENDING:   '#3b82f6',
-  TIMEOUT:   '#f97316',
-  FAILURE:   '#ef4444',
-  LINK_DOWN: '#991b1b',
+// Dynamic URL Builder
+export const buildURL = (endpoint, params = {}) => {
+  let url = `${API_CONFIG.baseURL}${endpoint}`;
+  
+  // Replace path parameters (e.g., /transactions/{id})
+  Object.keys(params).forEach(key => {
+    url = url.replace(`{${key}}`, params[key]);
+  });
+  
+  return url;
 };
 
-export const API = {
-  kpiMetrics:       () => buildURL(API_ENDPOINTS.KPI.METRICS),
-  kpiRealtime:      () => buildURL(API_ENDPOINTS.KPI.REALTIME),
-  flowBanl:         () => buildURL(API_ENDPOINTS.FLOW.BANL),
-  flowImps:         () => buildURL(API_ENDPOINTS.FLOW.IMPS),
-  flowUpi:          () => buildURL(API_ENDPOINTS.FLOW.UPI),
-  heatmap:          () => buildURL(API_ENDPOINTS.HEATMAP.DATA),
-  transactionsLive: () => buildURL(API_ENDPOINTS.TRANSACTIONS.LIVE),
-  transactionsList: (params = {}) => {
-    const q = new URLSearchParams(params).toString();
-    return buildURL(`${API_ENDPOINTS.TRANSACTIONS.LIST}${q ? `?${q}` : ''}`);
-  },
-  trace:            (txnId) => buildURL(`${API_ENDPOINTS.TRANSACTIONS.TRACE}/${txnId}`),
-  logsSearch:       (params = {}) => {
-    const q = new URLSearchParams(params).toString();
-    return buildURL(`${API_ENDPOINTS.LOGS.SEARCH}${q ? `?${q}` : ''}`);
-  },
-  logsAudit:        (page = 1, limit = 10) =>
-    buildURL(`${API_ENDPOINTS.LOGS.AUDIT}?page=${page}&limit=${limit}`),
-  logsLive:         (from) => buildURL(`${API_ENDPOINTS.LOGS.LIVE}?from=${from}`),
-  npciStatus:       () => buildURL(API_ENDPOINTS.NPCI.STATUS),
-  alertsActive:     () => buildURL(API_ENDPOINTS.ALERTS.ACTIVE),
-  alertsNotify:     () => buildURL(API_ENDPOINTS.ALERTS.NOTIFY),
-  alertsWebhook:    () => buildURL(API_ENDPOINTS.ALERTS.WEBHOOK),
-  banksList:        () => buildURL(API_ENDPOINTS.BANKS.LIST),
-  bankMetrics:      (bankId) => buildURL(`${API_ENDPOINTS.BANKS.METRICS}/${bankId}/metrics`),
-  authLogin:        () => buildURL(API_ENDPOINTS.AUTH.LOGIN),
-  authOtpSend:      () => buildURL(API_ENDPOINTS.AUTH.OTP_SEND),
-  authOtpVerify:    () => buildURL(API_ENDPOINTS.AUTH.OTP_VERIFY),
-  exportCsv:        (type, from, to) =>
-    buildURL(`${API_ENDPOINTS.EXPORT.CSV}?type=${type}${from?`&from=${from}`:''}${to?`&to=${to}`:''}`),
-  exportExcel:      (type) => buildURL(`${API_ENDPOINTS.EXPORT.EXCEL}?type=${type}`),
-  exportPdf:        (type) => buildURL(`${API_ENDPOINTS.EXPORT.PDF}?type=${type}`),
-  exportJson:       (type) => buildURL(`${API_ENDPOINTS.EXPORT.JSON}?type=${type}`),
-  errorsSummary:    () => buildURL(API_ENDPOINTS.ERRORS.SUMMARY),
-  errorsTopCodes:   () => buildURL(API_ENDPOINTS.ERRORS.TOP_CODES),
-  health:           () => buildURL(API_ENDPOINTS.HEALTH.CHECK),
-  wsLiveFeed:       () => buildWSURL(WS_ENDPOINTS.LIVE_FEED),
-  wsAlerts:         () => buildWSURL(WS_ENDPOINTS.ALERTS),
-  wsNpciLogs:       () => buildWSURL(WS_ENDPOINTS.NPCI_LOGS),
+// Query Parameter Builder
+export const buildQueryParams = (params = {}) => {
+  const searchParams = new URLSearchParams();
+  
+  Object.keys(params).forEach(key => {
+    const value = params[key];
+    if (value !== undefined && value !== null && value !== '') {
+      if (Array.isArray(value)) {
+        value.forEach(item => searchParams.append(key, item));
+      } else {
+        searchParams.append(key, value);
+      }
+    }
+  });
+  
+  return searchParams.toString();
 };
 
-export default API;
+// Complete URL Builder with Query Parameters
+export const buildCompleteURL = (endpoint, pathParams = {}, queryParams = {}) => {
+  const url = buildURL(endpoint, pathParams);
+  const queryString = buildQueryParams(queryParams);
+  return queryString ? `${url}?${queryString}` : url;
+};
+
+// Environment Detection Helpers
+export const isDevelopment = () => getCurrentEnvironment() === 'development';
+export const isProduction = () => getCurrentEnvironment() === 'production';
+export const isTest = () => getCurrentEnvironment() === 'test';
+
+// Export default configuration
+export default {
+  API_ENDPOINTS,
+  WS_ENDPOINTS,
+  REFRESH_INTERVALS,
+  SLA_THRESHOLDS,
+  API_CONFIG,
+  HTTP_METHODS,
+  CONTENT_TYPES,
+  buildURL,
+  buildQueryParams,
+  buildCompleteURL,
+  isDevelopment,
+  isProduction,
+  isTest,
+  getBaseURL,
+  getWSURL
+};

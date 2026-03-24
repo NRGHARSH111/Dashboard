@@ -48,6 +48,18 @@ const initialState = {
     history: [],
     configuration: []
   },
+  reportSummary: {
+    lastGenerated: null,
+    totalExports: 0,
+    pendingReports: 0,
+    lastExportType: null,
+    hourlyReady: false,
+    dailyReady: false,
+    bankWiseReady: false,
+    failureAnalysisReady: false,
+    npciSlaReady: false,
+    status: 'idle'
+  },
   activeTab: 'overview',
   mfaVerified: true,
   lastUpdated: null,
@@ -59,7 +71,8 @@ const initialState = {
     npciConnectivity: false,
     bankTenantData: false,
     complianceData: false,
-    alerts: false
+    alerts: false,
+    reportSummary: false
   },
   error: null
 };
@@ -170,6 +183,15 @@ function dashboardReducer(state, action) {
       return {
         ...state,
         mfaVerified: !state.mfaVerified
+      };
+    case 'UPDATE_REPORT_SUMMARY':
+      return {
+        ...state,
+        reportSummary: {
+          ...state.reportSummary,
+          ...action.payload,
+          lastGenerated: new Date().toISOString()
+        }
       };
     default:
       return state;
@@ -487,6 +509,10 @@ export function DashboardProvider({ children }) {
     dispatch({ type: 'RESOLVE_ALERT', payload: alertId });
   };
 
+  const updateReportSummary = (summary) => {
+    dispatch({ type: 'UPDATE_REPORT_SUMMARY', payload: summary });
+  };
+
   // Refresh control functions
   const pauseRefreshes = () => {
     refreshManager.pauseAll();
@@ -531,6 +557,7 @@ export function DashboardProvider({ children }) {
     updateComplianceData,
     addAlert,
     resolveAlert,
+    updateReportSummary,
     setActiveTab,
     toggleMFA
   };
